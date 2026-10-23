@@ -10,8 +10,8 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | --- | --- | --- |
 | A01 | 项目骨架与配置模块 | ✅ |
 | A02 | 协议定稿（`docs/protocol.md`，tag `proto-v1`） | ✅ |
-| A03 | 帧编解码 `shared/protocol.py` | 待做 |
-| A04 | 编解码单元测试 | 待做 |
+| A03 | 帧编解码 `shared/protocol.py` + 错误码 `shared/errors.py` | ✅ |
+| A04 | 编解码单元测试（21 条，含变异检查） | ✅ |
 | A05 | echo 服务端 | 待做 |
 | A06 | CLI 客户端 | 待做 |
 
@@ -33,7 +33,9 @@ py -3.13 -m venv .venv # 建虚拟环境（可选）
 ```
 Bluebird/
 ├─ shared/      协议、配置、数据模型（前后端共用）
-│   └─ config.py        命令行参数：--host / --port / --max-frame / --log-level
+│   ├─ config.py        命令行参数：--host / --port / --max-frame / --log-level
+│   ├─ protocol.py      帧编解码：encode_frame / read_frame / ProtocolError / MsgType
+│   └─ errors.py        错误码与中文文案（15 个码，前后端共用）
 ├─ server/      服务端：监听、路由、鉴权、在线状态、心跳、文件
 ├─ client/      客户端：CLI 与 tkinter GUI
 ├─ tests/       单元测试与压测脚本
@@ -51,6 +53,20 @@ py -3.13 -m shared.config
 # host=0.0.0.0 port=8888 max_frame=65536 log_level=INFO
 
 py -3.13 -m shared.config --port 9000 --log-level debug
+```
+
+帧编解码（A03）已经有实现和测试：
+
+```powershell
+.venv\Scripts\python.exe -m pytest
+# 21 passed
+```
+
+```python
+from shared.protocol import MsgType, encode_frame, read_frame
+
+frame = encode_frame(MsgType.PING)          # b'CH\x01\x30\x00\x00\x00\x02{}'
+msg_type, body = await read_frame(reader)   # (0x30, {})
 ```
 
 服务端与客户端在 A05 / A06 之后可用：
