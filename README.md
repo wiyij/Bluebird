@@ -12,8 +12,9 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | A02 | 协议定稿（`docs/protocol.md`，tag `proto-v1`） | ✅ |
 | A03 | 帧编解码 `shared/protocol.py` + 错误码 `shared/errors.py` | ✅ |
 | A04 | 编解码单元测试（21 条，含变异检查） | ✅ |
-| A05 | echo 服务端 | 待做 |
-| A06 | CLI 客户端 | 待做 |
+| A05 | 转发服务端 `server/server.py`（含 6 条联调测试） | ✅ |
+| A06 | 命令行客户端 `client/cli.py` | ✅ |
+| A07 | 双机联调 + Wireshark 抓包取证 | 待做 |
 
 ## 环境
 
@@ -35,9 +36,12 @@ Bluebird/
 ├─ shared/      协议、配置、数据模型（前后端共用）
 │   ├─ config.py        命令行参数：--host / --port / --max-frame / --log-level
 │   ├─ protocol.py      帧编解码：encode_frame / read_frame / ProtocolError / MsgType
-│   └─ errors.py        错误码与中文文案（15 个码，前后端共用）
-├─ server/      服务端：监听、路由、鉴权、在线状态、心跳、文件
-├─ client/      客户端：CLI 与 tkinter GUI
+│   ├─ errors.py        错误码与中文文案（15 个码，前后端共用）
+│   └─ console.py       Windows 控制台 UTF-8 适配（stdin/stdout/stderr）
+├─ server/      服务端
+│   └─ server.py        转发服务端：收一帧，转给所有在线客户端
+├─ client/      客户端
+│   └─ cli.py           命令行客户端：输入一行 → CHAT_GROUP，打印收到的帧
 ├─ tests/       单元测试与压测脚本
 └─ docs/
     ├─ protocol.md      应用层协议 v1（已冻结，唯一事实源）
@@ -68,6 +72,24 @@ from shared.protocol import MsgType, encode_frame, read_frame
 frame = encode_frame(MsgType.PING)          # b'CH\x01\x30\x00\x00\x00\x02{}'
 msg_type, body = await read_frame(reader)   # (0x30, {})
 ```
+
+服务端与客户端（开三个终端）：
+
+```powershell
+py -3.13 -m server.server                          # 终端 1：监听 0.0.0.0:8888
+py -3.13 -m client.cli --name alice                # 终端 2
+py -3.13 -m client.cli --name bob                  # 终端 3（可换机器，--host 填服务端 IP）
+```
+
+alice 输入一行，alice 和 bob 的终端都会出现同一帧：
+
+```
+14:58:38  ←  CHAT_GROUP   {"msg_id": "alice-000001", "text": "大家好，我是 alice"}
+```
+
+> 用管道喂中文时（`echo 你好 | client`），先把 PowerShell 的输出编码设成 UTF-8：
+> `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`，否则 GBK 字节会被按 UTF-8 解成乱码。
+> 交互输入不受影响。
 
 服务端与客户端在 A05 / A06 之后可用：
 

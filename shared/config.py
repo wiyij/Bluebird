@@ -1,4 +1,4 @@
-"""全局配置：命令行参数 > 内置默认值。
+﻿"""全局配置：命令行参数 > 内置默认值。
 
 只依赖标准库。服务端与客户端都从这里取配置，避免各写一套 argparse。
 
@@ -56,14 +56,14 @@ def _log_level(value: str) -> str:
     return level
 
 
-def build_parser(prog: str = "bluebird") -> argparse.ArgumentParser:
+def build_parser(prog: str = "bluebird", default_host: str = DEFAULT_HOST) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
         description="局域网多用户聊天室（TCP 8888 + 8 字节帧头 + JSON）",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--host", default=DEFAULT_HOST,
+        "--host", default=default_host,
         help="监听/连接地址；服务端用 0.0.0.0 表示所有网卡，客户端填服务端 IP",
     )
     parser.add_argument(
@@ -81,9 +81,9 @@ def build_parser(prog: str = "bluebird") -> argparse.ArgumentParser:
     return parser
 
 
-def parse_args(argv: list[str] | None = None, prog: str = "bluebird") -> Config:
+def parse_args(argv: list[str] | None = None, prog: str = "bluebird", default_host: str = DEFAULT_HOST) -> Config:
     """解析命令行参数；测试里传 argv 列表即可，不读真实 sys.argv。"""
-    ns = build_parser(prog).parse_args(argv)
+    ns = build_parser(prog, default_host).parse_args(argv)
     return Config(
         host=ns.host,
         port=ns.port,
