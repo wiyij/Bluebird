@@ -1,9 +1,8 @@
-"""A04：帧编解码的七类输入 + 边界与异常。
+"""帧编解码的七类输入 + 边界与异常（协议 v2）。
 
-七类必测输入（对应 docs/protocol.md 附录 A 与《实施步骤清单》S08）：
-    ① ASCII  ② 中文  ③ emoji  ④ 空体  ⑤ 超长体  ⑥ 坏 magic  ⑦ 半包
+七类必测输入：① ASCII ② 中文 ③ emoji ④ 空体 ⑤ 超长体 ⑥ 坏 magic ⑦ 半包
 
-另外把「协议文档第 5 章的黄金字节」固定成回归用例：文档与代码只要有一边
+另外把「协议文档附录 A 的黄金字节」固定成回归用例：文档与代码只要有一边
 改了字段或分隔符，这条就会红。
 """
 
@@ -26,6 +25,7 @@ from shared.protocol import (
     ProtocolError,
     encode_frame,
     is_known_type,
+    is_valid_color,
     read_frame,
     text_too_long,
 )
@@ -51,10 +51,6 @@ def reader_with(*chunks: bytes) -> asyncio.StreamReader:
         reader.feed_data(chunk)
     reader.feed_eof()
     return reader
-
-
-def encode_body_json(obj: object) -> bytes:
-    return json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 # ---------------------------------------------------------------- ① ASCII
@@ -105,7 +101,8 @@ async def test_emoji_roundtrip_counts_four_bytes() -> None:
 
 async def test_empty_body_encodes_as_empty_object() -> None:
     frame = encode_frame(MsgType.PING)
-    assert frame == bytes.fromhex("43480130000000027B7D")
+    # v2：版本号字节是 0x02
+    assert frame == bytes.fromhex("43480230000000027B7D")
     assert frame[HEADER.size:] == b"{}"
 
     msg_type, body = await read_frame(reader_with(frame))
@@ -161,8 +158,9 @@ async def test_bad_magic_is_rejected() -> None:
     assert exc.value.code is None
 
 
-async def test_bad_version_maps_to_1003() -> None:
-    frame = raw_frame(MsgType.PING, version=2)
+async def test_old_version_v1_maps_to_1003() -> None:
+    # v1 的客户端连 v2 服务端：版本字节是 0x01，应当回 1003
+    frame = raw_frame(MsgType.PING, version=1)
     with pytest.raises(ProtocolError) as exc:
         await read_frame(reader_with(frame))
     assert exc.value.code == ErrorCode.VERSION_MISMATCH
@@ -219,14 +217,14 @@ async def test_half_packet_waits_for_the_rest() -> None:
 async def test_two_frames_in_one_buffer() -> None:
     # 粘包：一次喂两帧，必须按顺序拆出两条
     first = encode_frame(MsgType.PING)
-    second = encode_frame(MsgType.USER_JOIN, {"user_id": 1, "username": "alice", "since": 0})
+    second = encode_frame(MsgType.USER_JOIN, {"nickname": "alice", "color": "black", "since": 0})
     reader = reader_with(first + second)
 
     t1, b1 = await read_frame(reader)
     t2, b2 = await read_frame(reader)
 
     assert (t1, b1) == (MsgType.PING, {})
-    assert t2 == MsgType.USER_JOIN and b2["username"] == "alice"
+    assert t2 == MsgType.USER_JOIN and b2["nickname"] == "alice"
 
 
 # ---------------------------------------------------------------- 断流
@@ -247,41 +245,47 @@ async def test_truncated_body_raises_incomplete_read() -> None:
 
 
 async def test_golden_login_frame_matches_protocol_doc() -> None:
-    """附录 A 的标准答案：140 字节，逐字节对齐。"""
-    body = {
-        "username": "alice",
-        "pwd_hash": "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92",
-        "client_ver": "1.0",
-        "resume_seq": 0,
-    }
+    """附录 A 的标准答案（v2）：63 字节，逐字节对齐。"""
+    body = {"username": "alice", "client_ver": "1.0", "color": "black"}
     expected = bytes.fromhex(
-        "43480101000000847B22757365726E616D65223A22616C696365222C22707764"
-        "5F68617368223A22386439363965656636656361643363323961336136323932"
-        "3830653638366366306333663564356138366166663363613132303230633932"
-        "3361646336633932222C22636C69656E745F766572223A22312E30222C227265"
-        "73756D655F736571223A307D"
+        "43480201000000377B22757365726E616D65223A22616C696365222C22636C69"
+        "656E745F766572223A22312E30222C22636F6C6F72223A22626C61636B227D"
     )
     frame = encode_frame(MsgType.LOGIN_REQ, body)
 
-    assert len(frame) == 140
+    assert len(frame) == 63
     assert frame == expected
-    assert frame[:8].hex(" ").upper() == "43 48 01 01 00 00 00 84"
+    assert frame[:8].hex(" ").upper() == "43 48 02 01 00 00 00 37"
 
     msg_type, decoded = await read_frame(reader_with(frame))
     assert msg_type == MsgType.LOGIN_REQ
     assert decoded == body
 
 
-# ---------------------------------------------------------------- 正文长度
+# ---------------------------------------------------------------- 其他
 
 
 def test_text_limit_is_measured_in_bytes() -> None:
     assert text_too_long("a" * MAX_TEXT_BYTES) is False
     assert text_too_long("a" * (MAX_TEXT_BYTES + 1)) is True
-    assert text_too_long("中" * 2730) is False        # 8190 字节
-    assert text_too_long("中" * 2731) is True         # 8193 字节
+    assert text_too_long("中" * 666) is False        # 1998 字节
+    assert text_too_long("中" * 667) is True         # 2001 字节
 
 
 def test_header_layout_is_eight_bytes_big_endian() -> None:
     assert HEADER.size == 8
-    assert HEADER.pack(0x4348, 1, 0x10, 44) == bytes.fromhex("434801100000002C")
+    assert HEADER.pack(0x4348, 2, 0x10, 44) == bytes.fromhex("434802100000002C")
+
+
+def test_color_validation() -> None:
+    assert is_valid_color("black") is True
+    assert is_valid_color("green") is True
+    assert is_valid_color("purple") is False
+    assert is_valid_color(None) is False
+
+
+def test_v2_type_count_is_fifteen() -> None:
+    assert len(MsgType) == 15
+    codes = sorted(int(t) for t in MsgType)
+    assert codes == [0x01, 0x02, 0x03, 0x04, 0x05, 0x10, 0x11, 0x12,
+                     0x20, 0x21, 0x22, 0x30, 0x31, 0x50, 0x60]

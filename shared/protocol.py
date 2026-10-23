@@ -1,14 +1,20 @@
-﻿"""应用层协议 v1 的帧编解码。
+"""应用层协议 v2 的帧编解码。
 
 与 docs/protocol.md 一一对应：
 
     [ magic 2B ][ ver 1B ][ type 1B ][ length 4B 大端 ][ body: UTF-8 JSON ]
-      0x4348      0x01                                               ≤ 65528
+      0x4348      0x02                                               ≤ 65528
 
-三条实现纪律（对应协议文档第 0 章）：
-1. 解析一律用 `readexactly`：`read(n)` 只保证「最多 n 字节」，少读就是半包 bug 的源头；
-2. 先验长度再读体，绝不按谎报的 length 分配内存；
-3. 报文体必须是 JSON 对象，数组和裸值一律按 2003 处理。
+v2 相对 v1 的变化（详见协议文档第 4 章）：
+- 删除文件传输 4 种（0x40—0x43）；
+- 新增颜色 2 种（0x04 SET_COLOR、0x05 USER_COLOR）；
+- 登录不再有口令、令牌与断点续传，只认昵称；
+- 单条正文上限从 8192 降到 2000 字节。
+
+三条实现纪律不变：
+1. 解析一律用 `readexactly`；
+2. 先验长度再读体；
+3. 报文体必须是 JSON 对象。
 
 异常约定：
 - 协议违规 → ``ProtocolError``（带 code，调用方据此决定回什么帧、要不要断）；
@@ -27,20 +33,26 @@ from shared.errors import ErrorCode
 
 # ---- 帧常量 ----
 MAGIC = 0x4348                    # ASCII "CH"
-VERSION = 1
+VERSION = 2                       # v2：无口令、无文件、有颜色
 HEADER = struct.Struct(">HBBI")   # magic, ver, type, length（大端）
 HEADER_SIZE = HEADER.size         # 8
 MAX_FRAME = 65536                 # 整帧上限（含首部）
 MAX_BODY = MAX_FRAME - HEADER_SIZE  # 65528，length 字段的上限
-MAX_TEXT_BYTES = 8192             # 单条聊天正文上限（UTF-8 字节）
+MAX_TEXT_BYTES = 2000             # 单条聊天正文上限（UTF-8 字节）
+
+# ---- 颜色 ----
+DEFAULT_COLOR = "black"
+COLORS: tuple[str, ...] = ("black", "green", "blue", "red")
 
 
 class MsgType(IntEnum):
-    """协议文档第 3 章的 17 种消息类型。"""
+    """协议文档第 3 章的 15 种消息类型。"""
 
     LOGIN_REQ = 0x01
     LOGIN_RESP = 0x02
     LOGOUT = 0x03
+    SET_COLOR = 0x04
+    USER_COLOR = 0x05
 
     CHAT_GROUP = 0x10
     CHAT_PRIVATE = 0x11
@@ -53,11 +65,6 @@ class MsgType(IntEnum):
     PING = 0x30
     PONG = 0x31
 
-    FILE_OFFER = 0x40
-    FILE_ACCEPT = 0x41
-    FILE_CHUNK = 0x42
-    FILE_DONE = 0x43
-
     ERROR = 0x50
     ACK = 0x60
 
@@ -65,7 +72,7 @@ class MsgType(IntEnum):
 class ProtocolError(Exception):
     """帧头非法、版本不符、超长、JSON 解析失败。
 
-    :param reason: 机器可读的原因，写日志用（``bad_magic`` / ``bad_version`` …）
+    :param reason: 机器可读的原因，写日志用
     :param detail: 人类可读的补充信息
     :param code: 要回给对端的错误码；``None`` 表示不回包、直接断开
     """
@@ -152,12 +159,16 @@ async def read_frame(
 
 
 def is_known_type(msg_type: int) -> bool:
-    """类型码是否在协议 v1 的 17 种之内（分发层用它决定要不要回 2004）。"""
+    """类型码是否在协议 v2 的 15 种之内（分发层用它决定要不要回 2004）。"""
     try:
         MsgType(msg_type)
     except ValueError:
         return False
     return True
+
+
+def is_valid_color(color: object) -> bool:
+    return isinstance(color, str) and color in COLORS
 
 
 def text_too_long(text: str) -> bool:
@@ -167,6 +178,6 @@ def text_too_long(text: str) -> bool:
 
 __all__ = [
     "MAGIC", "VERSION", "HEADER", "HEADER_SIZE", "MAX_FRAME", "MAX_BODY", "MAX_TEXT_BYTES",
-    "MsgType", "ProtocolError", "encode_frame", "read_frame",
-    "is_known_type", "text_too_long",
+    "DEFAULT_COLOR", "COLORS", "MsgType", "ProtocolError", "encode_frame", "read_frame",
+    "is_known_type", "is_valid_color", "text_too_long",
 ]

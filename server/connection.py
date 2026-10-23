@@ -1,7 +1,7 @@
 """单个客户端的连接封装：发帧、回错误、关闭。
 
-这一层只管「怎么把一帧写到对端」，不关心业务。身份字段（``user_id`` /
-``username`` / ``state``）先留空，A09 建立连接表、A10 登录之后才会被填上。
+这一层只管「怎么把一帧写到对端」，不关心业务。身份字段在登录成功后被填上：
+``nickname``（在线唯一）与 ``color``（black / green / blue / red）。
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 
 from shared.errors import ErrorCode, message_for
-from shared.protocol import MsgType, encode_frame
+from shared.protocol import DEFAULT_COLOR, MsgType, encode_frame
 
 
 @dataclass(eq=False)          # eq=False → 保留对象身份哈希，才能放进 set 当在线表
@@ -21,10 +21,16 @@ class Client:
     peer: tuple[str, int] | None = None
     connected_at: float = field(default_factory=time.time)
 
-    # ---- 以下字段登录后才有值 ----
-    user_id: int | None = None
-    username: str | None = None
-    state: str = "connected"          # connected / authed / closed
+    # ---- 以下字段登录成功后才有值 ----
+    nickname: str | None = None
+    color: str = DEFAULT_COLOR
+    since: int = field(default_factory=lambda: int(time.time()))
+    state: str = "connected"          # connected / authed / closing / closed
+    leave_reason: str = "disconnect"  # logout / kicked / disconnect
+
+    @property
+    def authed(self) -> bool:
+        return self.state == "authed"
 
     @property
     def alive(self) -> bool:
@@ -33,9 +39,20 @@ class Client:
     @property
     def label(self) -> str:
         """日志里怎么称呼这个连接。"""
-        if self.username:
-            return f"{self.username}@{self.peer[0]}:{self.peer[1]}" if self.peer else self.username
-        return f"{self.peer[0]}:{self.peer[1]}" if self.peer else "unknown"
+        who = self.nickname or "未登录"
+        if self.peer:
+            return f"{who}@{self.peer[0]}:{self.peer[1]}"
+        return who
+
+    def profile(self) -> dict:
+        """广播给别人的公开信息：不带 peer、不带 token。"""
+        return {
+            "nickname": self.nickname,
+            "color": self.color,
+            "since": self.since,
+        }
+
+    # ---------------------------------------------------------------- 发送
 
     async def send(self, msg_type: int | MsgType, body: dict | None = None) -> None:
         await self.send_frame(encode_frame(msg_type, body if body is not None else {}))
@@ -55,6 +72,8 @@ class Client:
         if ref_msg_id:
             body["ref_msg_id"] = ref_msg_id
         await self.send(MsgType.ERROR, body)
+
+    # ---------------------------------------------------------------- 关闭
 
     async def close(self) -> None:
         self.state = "closed"
