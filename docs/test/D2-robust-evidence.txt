@@ -1,4 +1,5 @@
-心跳参数：15 s 一次；本脚本用 0.5 s 判死 + 0.1 s 扫描做加速
+心跳参数：15 s 一次；A 段用 0.5 s 判死 + 0.1 s 扫描做加速
+模式：完整（含真实参数空闲保活）
 
 ===== A 服务端 =====
 [PASS] A17 心跳判死：长时间不发帧的连接被踢，广播 USER_LEAVE  {'nickname': 'alice', 'reason': 'disconnect'}
@@ -18,8 +19,13 @@
 [PASS] P0 断线提示是中文，不是 Python 异常 repr  [连接已断开] 网络中断（ConnectionResetError）
 
 客户端最后几行输出：
-    10:02:31  [system：在线 1 人] alice(black)
+    10:11:04  [system：在线 1 人] alice(black)
     
     [连接已断开] 网络中断（ConnectionResetError）
 
-合计 13 项：PASS 13，FAIL 0
+===== C 真实参数下的空闲保活（--slow）=====
+[PASS] A17 真实参数下空闲 50 s（> 判死线 45 s）连接仍在  一直在线
+[PASS] A17 客户端每 15 s 发一个 PING（服务端日志可见 ≥3 个）  收到 3 个 PING
+[PASS] A17 没有被服务端误判超时  0 次
+
+合计 16 项：PASS 16，FAIL 0

@@ -9,7 +9,7 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | 模块 | 状态 |
 | --- | --- |
 | 应用层协议 v2（15 种类型、10 个错误码） | ✅ 已冻结（tag `proto-v2`） |
-| 帧编解码 + 67 条单元/联调测试 | ✅ |
+| 帧编解码 + 74 条单元/联调测试 | ✅ |
 | 服务端：昵称登录、群聊、一对一私聊、颜色广播、上下线通知 | ✅ |
 | 服务端：登录时限 10 s、未登录 1006、滑动窗口限流 2002、系统消息 `CHAT_SYSTEM` | ✅ |
 | 心跳与超时踢除（15 s / 45 s / 5 s 扫描） | ✅ |
@@ -57,7 +57,7 @@ Bluebird/
 │   ├─ verify_d2.py     D2 验收：20 项协议层判据（登录／名单／群聊／私聊／限流）
 │   ├─ verify_d2_cli.py D2 验收：三端真实 CLI
 │   └─ verify_robust.py 健壮性验收：心跳判死、慢客户端、坏帧容错、断线退出
-├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 28 = 67 条
+├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 28 + 客户端 7 = 74 条
 └─ docs/
     ├─ protocol.md      应用层协议 v2（唯一事实源）
     ├─ 三阶段实施路线.md
@@ -106,8 +106,9 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 ## 测试
 
 ```powershell
-.venv\Scripts\python.exe -m pytest                 # 67 passed
+.venv\Scripts\python.exe -m pytest                 # 74 passed
 .venv\Scripts\python.exe tools\verify_robust.py    # 13 项：心跳判死、慢客户端、坏帧容错、断线退出
+.venv\Scripts\python.exe tools\verify_robust.py --slow   # 再加 3 项：真实 15/45 s 参数下空闲 50 s（约 1 分钟）
 .venv\Scripts\python.exe tools\verify_d2.py        # 三端协议层 20 项
 .venv\Scripts\python.exe tools\verify_d2_cli.py    # 三端真实 CLI（需先起服务端）
 .venv\Scripts\python.exe tools\capture_d2.py       # 私聊隔离抓包（TC-05，自起服务端与三个 tap）

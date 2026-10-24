@@ -296,7 +296,7 @@ class ChatClient:
         except (ConnectionError, OSError):
             pass
 
-    async def _send(self, msg_type: int, body: dict) -> None:
+    async def _send(self, msg_type: int, body: dict | None = None) -> None:
         assert self.writer is not None
         try:
             self.writer.write(encode_frame(msg_type, body))

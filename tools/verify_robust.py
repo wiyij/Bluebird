@@ -11,10 +11,13 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
+import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,7 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from server.server import ChatServer                     # noqa: E402
-from shared.config import Config, HEARTBEAT_INTERVAL      # noqa: E402
+from shared.config import Config, HEARTBEAT_INTERVAL, IDLE_TIMEOUT  # noqa: E402
 from shared.errors import ErrorCode                      # noqa: E402
 from shared.protocol import (HEADER, MAGIC, VERSION, MsgType,  # noqa: E402
                              encode_frame, read_frame)
@@ -241,14 +244,101 @@ def client_side() -> None:
         log(f"    {line}")
 
 
+def wait_port(port: int, host: str = "127.0.0.1", timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with socket.socket() as sock:
+            sock.settimeout(0.3)
+            if sock.connect_ex((host, port)) == 0:
+                return True
+        time.sleep(0.1)
+    return False
+
+
+def python_exe() -> str:
+    candidate = ROOT / ".venv" / "Scripts" / "python.exe"
+    return str(candidate) if candidate.exists() else sys.executable
+
+
+def slow_heartbeat() -> None:
+    """--slow：用真实参数（15 s 心跳 / 45 s 判死）走一遍，空闲 50 s。
+
+    这一段要等 50 s，所以放在 --slow 里。它盯的是一个真出过的 bug：
+    心跳任务第一次触发时 ``_send()`` 少传参数，客户端在真机上「空闲 15 s 就自己崩」，
+    而所有加速用例都在 15 s 之前就结束了，全绿也发现不了。
+    """
+    python = python_exe()
+    port = "8922"
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    log_path = Path(tempfile.gettempdir()) / "bluebird-hb-server.log"
+    log_file = log_path.open("w", encoding="utf-8", errors="replace")
+
+    server = subprocess.Popen(
+        [python, "-m", "server.server", "--port", port, "--log-level", "DEBUG"],
+        cwd=ROOT, stdout=log_file, stderr=subprocess.STDOUT, env=env,
+    )
+    if not wait_port(int(port)):
+        server.kill()
+        check("A17 真实参数下的空闲保活", False, "服务端没起来")
+        return
+    client = subprocess.Popen(
+        [python, "-m", "client.cli", "--name", "idle", "--port", port],
+        cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", bufsize=1, env=env,
+    )
+    started = time.monotonic()
+    died_at = None
+    for _ in range(55):
+        time.sleep(1)
+        if client.poll() is not None:
+            died_at = time.monotonic() - started
+            break
+    alive = died_at is None
+    check(f"A17 真实参数下空闲 50 s（> 判死线 {IDLE_TIMEOUT:.0f} s）连接仍在",
+          alive, "一直在线" if alive else f"{died_at:.0f} s 时退出")
+
+    if alive:
+        try:
+            client.stdin.write("/quit\n")
+            client.stdin.flush()
+        except OSError:
+            pass
+        try:
+            client.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            client.kill()
+
+    server.terminate()
+    try:
+        server.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        server.kill()
+    log_file.close()
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    pings = text.count("recv type=0x30")
+    check(f"A17 客户端每 {HEARTBEAT_INTERVAL:.0f} s 发一个 PING（服务端日志可见 ≥3 个）",
+          pings >= 3, f"收到 {pings} 个 PING")
+    check("A17 没有被服务端误判超时", "heartbeat timeout" not in text, "0 次")
+
+
 def main() -> int:
-    log(f"心跳参数：{HEARTBEAT_INTERVAL:.0f} s 一次；本脚本用 0.5 s 判死 + 0.1 s 扫描做加速")
+    parser = argparse.ArgumentParser(prog="verify_robust", description="D2 健壮性验收")
+    parser.add_argument("--slow", action="store_true",
+                        help=f"额外跑真实参数的空闲保活（约 {IDLE_TIMEOUT + 10:.0f} s）")
+    args = parser.parse_args()
+
+    log(f"心跳参数：{HEARTBEAT_INTERVAL:.0f} s 一次；A 段用 0.5 s 判死 + 0.1 s 扫描做加速")
+    log(f"模式：{'完整（含真实参数空闲保活）' if args.slow else '快速（未跑真实参数空闲，加 --slow 补齐）'}")
     log()
     log("===== A 服务端 =====")
     asyncio.run(server_side())
     log()
     log("===== B 客户端（真子进程）=====")
     client_side()
+    if args.slow:
+        log()
+        log("===== C 真实参数下的空闲保活（--slow）=====")
+        slow_heartbeat()
     log()
     log(f"合计 {len(OK) + len(BAD)} 项：PASS {len(OK)}，FAIL {len(BAD)}")
     if BAD:
