@@ -1,0 +1,41 @@
+===== 登录窗 =====
+   截图 → docs\gui\D3-login.png
+[PASS] 启动即出现登录窗（不是先连再问）  
+[PASS] 输入昵称后进入主窗  
+[PASS] 顶栏显示服务器地址  127.0.0.1:50599
+[PASS] 在线人数从 0 变 1  在线 1 人
+[PASS] 字数计数器按 UTF-8 字节算  24/2000 字节
+[PASS] 第二个用户自己登录成功（后面几条的前置）  {'nickname': 'bob', 'color': 'black'}
+[PASS] 有人上线，在线列表 1 s 内更新（T06 的前置）  事件→渲染 0.00 s，列表=['alice', 'bob']
+[PASS] 上线只出现一条系统提示（USER_JOIN 不重复渲染）  出现 1 次
+[PASS] GUI 发出的消息到得了对方（含 emoji）  你好 😀 世界（0.00 s）
+[PASS] 发出后输入框清空  ''
+[PASS] 自己的消息也回显，格式为 [昵称：内容]（全角冒号）  消息区尾部：'[system：你已以 alice 的身份进入聊天室]\n[system：bob 进入聊天室]\n[alice：你好 😀 世界]\n' 事件流：[('login_ok', 'alice'), ('user_list', ''), ('user_join', 'bob'), ('system', 'bob 进入聊天室'), ('message', '你好 😀 世界')]
+[PASS] 对方的消息出现在消息区  
+[PASS] 消息按发送者着色（bob 用黑色 tag）  
+[PASS] T06 连发 30 条：最新一条贴在底部  yview=(0.368, 1.0)
+[PASS] T07 上翻时不强制拉回底部  0.000 → 0.000
+[PASS] T07 新消息照样收进来（只是不动视图）  
+   截图 → docs\gui\D3-settings.png
+[PASS] T09 改色广播到所有人  {'nickname': 'alice', 'color': 'green'}
+[PASS] T09 本地列表跟着变色  
+[PASS] T09 别人改色我这边的列表也变蓝  
+   截图 → docs\gui\D3-main.png
+[PASS] T11 双击昵称开出独立私聊窗  
+[PASS] T11 私聊窗标题明确  与 bob 私聊
+[PASS] T11 私聊投递到对方  这句只有你能看到
+[PASS] T11 主聊天室不出现私聊内容  
+[PASS] T11 对方的私聊进小窗  
+   截图 → docs\gui\D3-private.png
+[PASS] T12 对方离线后列表里消失  
+[PASS] T12 私聊窗提示已离线  
+[PASS] T12 给离线的人发私聊：就地提示，不发出去  
+[PASS] A24 服务端被杀后主窗进入断线状态  
+[PASS] A24 横幅出现  
+[PASS] A24 状态圆点变红  #c5221f
+[PASS] A24 断线后输入框禁用  disabled
+   截图 → docs\gui\D3-disconnected.png
+[PASS] 点「重新连接」回到登录窗（v2 不续会话）  
+[PASS] 回登录窗时昵称还预填着  alice
+
+合计 33 项：PASS 33，FAIL 0

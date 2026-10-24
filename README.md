@@ -9,14 +9,15 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | 模块 | 状态 |
 | --- | --- |
 | 应用层协议 v2（15 种类型、10 个错误码） | ✅ 已冻结（tag `proto-v2`） |
-| 帧编解码 + 74 条单元/联调测试 | ✅ |
+| 帧编解码 + 89 条单元/联调测试 | ✅ |
 | 服务端：昵称登录、群聊、一对一私聊、颜色广播、上下线通知 | ✅ |
 | 服务端：登录时限 10 s、未登录 1006、滑动窗口限流 2002、系统消息 `CHAT_SYSTEM` | ✅ |
 | 心跳与超时踢除（15 s / 45 s / 5 s 扫描） | ✅ |
 | 断线与写失败处理（写超时 5 s、立即断开、不留幽灵用户） | ✅ |
+| 客户端网络层（独立线程 + 事件队列，CLI 与 GUI 共用） | ✅ |
+| GUI：登录窗 + 四区主窗 + 私聊小窗 + 设置面板 + 断线横幅 | ✅ |
 | 命令行客户端（`/w` 私聊、`/color` 改色、`/who`、心跳保活） | ✅ |
-| GUI：登录窗 + 四区主窗 + 私聊小窗 | 待做（D3） |
-| 验收用例 T01—T13（《结果示例》第 5 章） | 协议／CLI 层已过 T01—T05、T08、T10—T12；T06、T07（贴底滚动）、T09（设置面板）要等 GUI，T13（换网段）要真机 —— 都归 D3／D4 |
+| 验收用例 T01—T13（《结果示例》第 5 章） | T01—T12 已在协议／CLI／GUI 层验过（见 `docs/test/D3.md`）；T13「换网段」要两台机器，留 D4 现场做 |
 
 ## 环境
 
@@ -46,8 +47,14 @@ Bluebird/
 │   ├─ ratelimit.py     单用户滑动窗口（10 条/秒）
 │   └─ connection.py    单连接封装：nickname / color / last_active / send / abort
 ├─ client/
-│   └─ cli.py           命令行客户端（GUI 未开始）
+│   ├─ net.py           网络层：一条连接 + 心跳 + 事件队列（CLI 与 GUI 共用）
+│   ├─ cli.py           命令行客户端（只做渲染）
+│   ├─ gui.py           图形界面入口：登录窗、DPI、事件泵、断线回登录
+│   ├─ chatui.py        四区主窗：顶栏 / 消息区 / 在线列表 / 输入区
+│   ├─ dialogs.py       私聊窗（Toplevel）与设置面板（四色）
+│   └─ ui.py            界面公共零件：字体、四色、只读消息框、贴底规则
 ├─ tools/
+│   ├─ procutil.py      起停子进程（Windows 上要杀整棵树，否则启动器留下真进程）
 │   ├─ tap.py           应用层抓包代理（按协议拆帧，逐帧记录十六进制）
 │   ├─ capture_d1.py    D1 取证：一条命令起服务端 + tap + 两个客户端
 │   ├─ capture_d2.py    D2 取证：三条连接各一个 tap，证明私聊不外泄（TC-05）
@@ -56,18 +63,30 @@ Bluebird/
 │   ├─ verify_d1_cli.py D1 验收：两个真实 CLI 客户端互发
 │   ├─ verify_d2.py     D2 验收：20 项协议层判据（登录／名单／群聊／私聊／限流）
 │   ├─ verify_d2_cli.py D2 验收：三端真实 CLI
-│   └─ verify_robust.py 健壮性验收：心跳判死、慢客户端、坏帧容错、断线退出
-├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 28 + 客户端 7 = 74 条
+│   ├─ verify_robust.py 健壮性验收：心跳判死、慢客户端、坏帧容错、断线退出
+│   └─ verify_d3_gui.py D3 验收：开真窗口走查 33 项，可 --shots 出截图
+├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 28 + 客户端 16 + 界面 6 = 89 条
 └─ docs/
     ├─ protocol.md      应用层协议 v2（唯一事实源）
     ├─ 三阶段实施路线.md
     ├─ pcap/            抓包日志（v1/v2）与帧结构配图
-    └─ test/            D1 抓包记录、验收报告与证据
+    ├─ gui/             D3 界面截图（登录 / 主窗 / 私聊 / 设置 / 断线）
+    └─ test/            D1/D2/D3 验收记录与证据
 ```
 
 ## 快速开始
 
-开三个终端：
+**图形界面**（推荐演示用）：先起服务端，再开三个客户端窗口。
+
+```powershell
+py -3.13 -m server.server                          # 终端 1：监听 0.0.0.0:8888
+py -3.13 -m client.gui --name alice                # 终端 2：弹出登录窗
+py -3.13 -m client.gui --name bob                  # 终端 3（换机器时 --host 填服务端 IP）
+```
+
+登录窗里填昵称与服务器地址 → 进入 → 双击右侧昵称开私聊 → ⚙ 设置里换颜色。
+
+**命令行界面**（脚本 / 抓包 / 三端快速验证用）：
 
 ```powershell
 py -3.13 -m server.server                          # 终端 1：监听 0.0.0.0:8888
@@ -106,7 +125,9 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 ## 测试
 
 ```powershell
-.venv\Scripts\python.exe -m pytest                 # 74 passed
+.venv\Scripts\python.exe -m pytest                 # 89 passed
+.venv\Scripts\python.exe tools\verify_d3_gui.py    # D3 界面走查 33 项（自己起服务端，约 20 秒）
+.venv\Scripts\python.exe tools\verify_d3_gui.py --shots   # 顺便把截图写到 docs/gui/
 .venv\Scripts\python.exe tools\verify_robust.py    # 13 项：心跳判死、慢客户端、坏帧容错、断线退出
 .venv\Scripts\python.exe tools\verify_robust.py --slow   # 再加 3 项：真实 15/45 s 参数下空闲 50 s（约 1 分钟）
 .venv\Scripts\python.exe tools\verify_d2.py        # 三端协议层 20 项
@@ -132,5 +153,8 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 - [docs/test/D2-审查.md](docs/test/D2-审查.md) —— D2 三轮审查记录（第三轮修掉 5 处会在 D3 引爆的隐患）
 - [docs/test/D2-robust-evidence.txt](docs/test/D2-robust-evidence.txt) —— 健壮性判据的实际输出
 - [docs/test/D2-capture.txt](docs/test/D2-capture.txt) —— 私聊隔离的字节级证据（carol 的流里 0 条 0x11）
+- [docs/test/D3.md](docs/test/D3.md) —— D3 界面与健壮性：四区布局、三个决定、四个坑
+- [docs/test/D3-gui-evidence.txt](docs/test/D3-gui-evidence.txt) —— 界面走查 33 项的实际输出
+- [docs/gui/](docs/gui) —— 登录窗 / 主窗 / 私聊窗 / 设置 / 断线 五张截图
 - [docs/三阶段实施路线.md](docs/三阶段实施路线.md) —— 三阶段施工顺序与每步判据
 

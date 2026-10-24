@@ -15,11 +15,11 @@ carol  总帧   8  CHAT_GROUP  4  CHAT_PRIVATE  0
 [PASS] 三端都登录成功  
 
 ===== carol 的字节流（全量，证明里面没有 0x11）=====
-09:59:20.018  C→S   63 B  type=0x01 LOGIN_REQ    len=55
-09:59:20.018  S→C   78 B  type=0x02 LOGIN_RESP   len=70
-09:59:20.018  S→C  195 B  type=0x20 USER_LIST    len=187
-09:59:22.315  S→C  104 B  type=0x10 CHAT_GROUP   len=96
-09:59:23.116  S→C   88 B  type=0x10 CHAT_GROUP   len=80
-09:59:24.716  C→S   76 B  type=0x10 CHAT_GROUP   len=68
-09:59:24.717  S→C  122 B  type=0x10 CHAT_GROUP   len=114
-09:59:25.517  C→S   10 B  type=0x03 LOGOUT       len=2
+10:49:17.171  C→S   63 B  type=0x01 LOGIN_REQ    len=55
+10:49:17.171  S→C   78 B  type=0x02 LOGIN_RESP   len=70
+10:49:17.171  S→C  195 B  type=0x20 USER_LIST    len=187
+10:49:19.465  S→C  104 B  type=0x10 CHAT_GROUP   len=96
+10:49:20.266  S→C   88 B  type=0x10 CHAT_GROUP   len=80
+10:49:21.867  C→S   76 B  type=0x10 CHAT_GROUP   len=68
+10:49:21.867  S→C  122 B  type=0x10 CHAT_GROUP   len=114
+10:49:22.667  C→S   10 B  type=0x03 LOGOUT       len=2
