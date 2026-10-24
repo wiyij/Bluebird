@@ -70,6 +70,40 @@ def style_document(doc: Document) -> None:
     section.bottom_margin = Cm(2.0)
 
 
+def _run(paragraph, text: str, size: float, bold: bool, color: RGBColor | None,
+         mono: bool = False):
+    run = paragraph.add_run(text)
+    run.font.size = Pt(size)
+    run.bold = bold
+    if mono:
+        run.font.name = MONO
+        set_east_asian(run, MONO)
+    else:
+        set_east_asian(run)
+    if color is not None:
+        run.font.color.rgb = color
+    return run
+
+
+INLINE = re.compile(r"\*\*(?P<bold>.+?)\*\*|`(?P<code>[^`]+)`")
+
+
+def add_runs(paragraph, text: str, size: float, *, bold: bool = False,
+             color: RGBColor | None = None) -> None:
+    """把 ``**加粗**`` 与 `` `代码` `` 拆成多个 run；表格和正文共用这一份。"""
+    position = 0
+    for match in INLINE.finditer(text):
+        if match.start() > position:
+            _run(paragraph, text[position:match.start()], size, bold, color)
+        if match.group("bold") is not None:
+            _run(paragraph, match.group("bold"), size, True, color)
+        else:
+            _run(paragraph, match.group("code"), size - 0.5, bold, color, mono=True)
+        position = match.end()
+    if position < len(text):
+        _run(paragraph, text[position:], size, bold, color)
+
+
 def para(doc: Document, text: str = "", *, size: float = 10.5, bold: bool = False,
          color: RGBColor | None = None, align=None, space_after: float = 4,
          indent: float = 0.0) -> object:
@@ -80,17 +114,8 @@ def para(doc: Document, text: str = "", *, size: float = 10.5, bold: bool = Fals
         p.paragraph_format.left_indent = Cm(indent)
     if align is not None:
         p.alignment = align
-    if not text:
-        return p
-    for index, chunk in enumerate(re.split(r"\*\*(.+?)\*\*", text)):
-        if not chunk:
-            continue
-        run = p.add_run(chunk)
-        run.font.size = Pt(size)
-        run.bold = bold or index % 2 == 1
-        if color is not None:
-            run.font.color.rgb = color
-        set_east_asian(run)
+    if text:
+        add_runs(p, text, size, bold=bold, color=color)
     return p
 
 
@@ -162,9 +187,7 @@ def table(doc: Document, headers: list[str], rows: list[list[str]],
         cells = t.add_row().cells
         for index, text in enumerate(row):
             cells[index].text = ""
-            run = cells[index].paragraphs[0].add_run(str(text))
-            run.font.size = Pt(size)
-            set_east_asian(run)
+            add_runs(cells[index].paragraphs[0], str(text), size)
     if widths:
         for row in t.rows:
             for index, width in enumerate(widths):
