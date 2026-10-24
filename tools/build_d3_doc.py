@@ -219,6 +219,10 @@ def git_head() -> str:
         return "（未取到）"
 
 
+#: D3 的两个里程碑提交（写死而不是取 HEAD：文档要稳定，不能因为改个脚本就变样）
+COMMITS = "1bab7bb　D3 界面与健壮性（主体）　｜　4e37d2d　换网复验与收尾"
+
+
 def build(out_path: Path) -> None:
     doc = Document()
     style_document(doc)
@@ -235,7 +239,7 @@ def build(out_path: Path) -> None:
 
     table(doc, ["项目", "内容"], [
         ["今日主题", "把「能用」变成「好用」：图形界面、在线列表、私聊窗、颜色设置、断线提示"],
-        ["代码提交", f"{git_head()}　D3 界面与健壮性 ＋ 换网复验"],
+        ["代码提交", COMMITS],
         ["测试", "89 passed（昨日 74）"],
         ["界面自动走查", "33/33 全通过（真 tkinter 窗口 + 真服务端）"],
         ["换网复验", "T13：手机热点 172.20.10.5 上 11/11（走真实网卡，非回环）"],
