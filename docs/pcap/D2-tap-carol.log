@@ -1,0 +1,16 @@
+09:59:20.018  C→S   63 B  type=0x01 LOGIN_REQ    len=55
+    43 48 02 01 00 00 00 37  |  {"username":"carol","client_ver":"2.0","color":"black"}
+09:59:20.018  S→C   78 B  type=0x02 LOGIN_RESP   len=70
+    43 48 02 02 00 00 00 46  |  {"code":0,"nickname":"carol","color":"black","server_time":1792807160}
+09:59:20.018  S→C  195 B  type=0x20 USER_LIST    len=187
+    43 48 02 20 00 00 00 BB  |  {"users":[{"nickname":"alice","color":"black","since":1792807160},{"nickname":"bob","color":"black","since":1792807160},{"nickname":"carol","color":"black","since":1792807160}],"count":3}
+09:59:22.315  S→C  104 B  type=0x10 CHAT_GROUP   len=96
+    43 48 02 10 00 00 00 60  |  {"seq":1,"from":"alice","text":"三端都在吗","server_ts":1792807162,"msg_id":"alice-000001"}
+09:59:23.116  S→C   88 B  type=0x10 CHAT_GROUP   len=80
+    43 48 02 10 00 00 00 50  |  {"seq":2,"from":"bob","text":"在","server_ts":1792807163,"msg_id":"bob-000001"}
+09:59:24.716  C→S   76 B  type=0x10 CHAT_GROUP   len=68
+    43 48 02 10 00 00 00 44  |  {"msg_id":"carol-000001","text":"我也在，我什么都没收到"}
+09:59:24.717  S→C  122 B  type=0x10 CHAT_GROUP   len=114
+    43 48 02 10 00 00 00 72  |  {"seq":4,"from":"carol","text":"我也在，我什么都没收到","server_ts":1792807164,"msg_id":"carol-000001"}
+09:59:25.517  C→S   10 B  type=0x03 LOGOUT       len=2
+    43 48 02 03 00 00 00 02  |  {}

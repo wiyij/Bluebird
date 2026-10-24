@@ -9,10 +9,12 @@ import asyncio
 
 import pytest
 
+import server.connection as connection
+from server.connection import Client
 from server.server import ChatServer
 from shared.config import Config
 from shared.errors import ErrorCode
-from shared.protocol import MsgType, encode_frame, read_frame
+from shared.protocol import (HEADER, MAGIC, VERSION, MsgType, encode_frame, read_frame)
 
 
 @pytest.fixture
@@ -438,6 +440,213 @@ async def test_rate_limit_returns_2002_and_stops_fanout(server: ChatServer) -> N
             assert msg_type == MsgType.CHAT_GROUP
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(read_frame(reader_a), 0.3)
+    finally:
+        for w in (writer_a, writer_b):
+            w.close()
+            await w.wait_closed()
+
+
+# ---------------------------------------------------------------- 登录字段校验
+# 协议 §0 纪律 1：必填字段缺失或类型不对一律 2003，绝不补默认值。
+
+
+async def test_login_without_client_ver_is_refused(server: ChatServer) -> None:
+    reader, writer = await connect(server)
+    try:
+        writer.write(encode_frame(MsgType.LOGIN_REQ, {"username": "alice"}))
+        await writer.drain()
+
+        body = await read_until(reader, MsgType.LOGIN_RESP)
+        assert body["code"] == int(ErrorCode.BAD_FRAME)
+        assert "client_ver" in body["message"]
+        assert await asyncio.wait_for(reader.read(16), timeout=2) == b""
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+async def test_login_username_must_be_a_string(server: ChatServer) -> None:
+    reader, writer = await connect(server)
+    try:
+        writer.write(encode_frame(MsgType.LOGIN_REQ, {
+            "username": 12345, "client_ver": "2.0",
+        }))
+        await writer.drain()
+
+        body = await read_until(reader, MsgType.LOGIN_RESP)
+        assert body["code"] == int(ErrorCode.BAD_FRAME)
+        assert server.client_count == 0          # 没被当成 "12345" 登进去
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+# ---------------------------------------------------------------- 坏帧容错
+
+
+async def test_bad_json_is_tolerated_once_then_the_connection_closes(server: ChatServer) -> None:
+    """协议 §2／§5：2003 容错一次。第一次之后连接还能用，第二次就断。"""
+    reader, writer = await connect(server)
+    await login(reader, writer, "alice")
+    garbage = HEADER.pack(MAGIC, VERSION, MsgType.CHAT_GROUP, 5) + b"{oops"
+    try:
+        writer.write(garbage)
+        await writer.drain()
+        body = await read_until(reader, MsgType.ERROR)
+        assert body["code"] == int(ErrorCode.BAD_FRAME)
+
+        # 容错之后照常可用
+        writer.write(encode_frame(MsgType.PING))
+        await writer.drain()
+        assert (await asyncio.wait_for(read_frame(reader), timeout=2))[0] == MsgType.PONG
+
+        # 第二次坏帧：回一条 2003 之后断开
+        writer.write(garbage)
+        await writer.drain()
+        again = await read_until(reader, MsgType.ERROR)
+        assert again["code"] == int(ErrorCode.BAD_FRAME)
+        assert await asyncio.wait_for(reader.read(16), timeout=2) == b""
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+# ---------------------------------------------------------------- 心跳（A17）
+
+
+@pytest.fixture
+async def jumpy_server():
+    """0.3 s 判死、0.1 s 扫一次：让心跳测试在一秒内跑完。"""
+    instance = ChatServer(
+        Config(host="127.0.0.1", port=0, log_level="WARNING"),
+        idle_timeout=0.3, sweep_interval=0.1,
+    )
+    await instance.start()
+    yield instance
+    await instance.close()
+
+
+async def _keep_alive(writer, interval: float = 0.1) -> asyncio.Task:
+    """后台不停发 PING，把某个连接「钉」在活着的状态。"""
+    async def loop() -> None:
+        while True:
+            await asyncio.sleep(interval)
+            writer.write(encode_frame(MsgType.PING))
+            await writer.drain()
+    return asyncio.create_task(loop())
+
+
+async def test_idle_client_is_kicked_and_reported_as_disconnect(jumpy_server: ChatServer) -> None:
+    reader_a, writer_a = await connect(jumpy_server)
+    reader_b, writer_b = await connect(jumpy_server)
+    await login(reader_a, writer_a, "alice")
+    await login(reader_b, writer_b, "bob")
+    await read_until(reader_b, MsgType.USER_LIST)
+    await read_until(reader_a, MsgType.CHAT_SYSTEM)      # bob 进入聊天室
+    keep = await _keep_alive(writer_b)                   # bob 活着，alice 装死
+    try:
+        left = await read_until(reader_b, MsgType.USER_LEAVE, timeout=5)
+        assert left == {"nickname": "alice", "reason": "disconnect"}
+
+        system = await read_until(reader_b, MsgType.CHAT_SYSTEM, timeout=5)
+        assert system["text"] == "alice 超时下线"
+        assert jumpy_server.client_count == 1
+    finally:
+        keep.cancel()
+        await asyncio.gather(keep, return_exceptions=True)
+        for w in (writer_a, writer_b):
+            w.close()
+            await w.wait_closed()
+
+
+async def test_ping_keeps_a_client_alive(jumpy_server: ChatServer) -> None:
+    """PING 不是特例：任何帧都刷新 last_active，所以持续 PING 不该被踢。"""
+    reader, writer = await connect(jumpy_server)
+    await login(reader, writer, "alice")
+    try:
+        for _ in range(5):
+            await asyncio.sleep(0.12)
+            writer.write(encode_frame(MsgType.PING))
+            await writer.drain()
+            await read_until(reader, MsgType.PONG)
+        assert jumpy_server.client_count == 1
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+# ---------------------------------------------------------------- 慢客户端 / 写失败
+
+
+async def test_send_frame_times_out_when_the_peer_stops_reading(monkeypatch) -> None:
+    monkeypatch.setattr(connection, "SEND_TIMEOUT", 0.05)
+
+    class StuckWriter:
+        def write(self, data: bytes) -> None:
+            pass
+
+        async def drain(self) -> None:
+            await asyncio.sleep(30)                 # 模拟对端不读、缓冲满
+
+    client = Client(reader=None, writer=StuckWriter())      # type: ignore[arg-type]
+    with pytest.raises(TimeoutError):
+        await client.send_frame(b"anything")
+
+
+async def test_a_client_that_cannot_be_written_is_aborted(server: ChatServer) -> None:
+    """广播时写失败必须断开那条连接，否则它就是「幽灵用户」。"""
+    reader_a, writer_a = await connect(server)
+    reader_b, writer_b = await connect(server)
+    await login(reader_a, writer_a, "alice")
+    await login(reader_b, writer_b, "bob")
+    await read_until(reader_a, MsgType.CHAT_SYSTEM)          # bob 进入聊天室
+    try:
+        stuck = server._clients["bob"]
+
+        async def always_timeout(frame: bytes) -> None:
+            raise TimeoutError("模拟写超时")
+
+        stuck.send_frame = always_timeout        # type: ignore[method-assign]
+
+        writer_a.write(encode_frame(MsgType.CHAT_GROUP, {"msg_id": "a-1", "text": "还在吗"}))
+        await writer_a.drain()
+
+        got = await read_until(reader_a, MsgType.CHAT_GROUP)
+        assert got["text"] == "还在吗"           # 健康的人照常收到
+        assert stuck.state != "authed"           # 写不进去的那条被断开，昵称会被释放
+    finally:
+        for w in (writer_a, writer_b):
+            w.close()
+            await w.wait_closed()
+
+
+async def test_private_message_advances_the_global_seq(server: ChatServer) -> None:
+    """seq 是**全局**序号，私聊也占一格：GUI 不能假设群聊 seq 连续。
+
+    协议第 4.1 章只承诺「全局单调递增」，没承诺「无空洞」。这条测试把
+    这个容易误解的点钉住，免得 D3 的 GUI 用 seq == last + 1 去判丢包。
+    """
+    reader_a, writer_a = await connect(server)
+    reader_b, writer_b = await connect(server)
+    await login(reader_a, writer_a, "alice")
+    await login(reader_b, writer_b, "bob")
+    try:
+        writer_a.write(encode_frame(MsgType.CHAT_GROUP, {"msg_id": "a-1", "text": "群一"}))
+        await writer_a.drain()
+        first = await read_until(reader_b, MsgType.CHAT_GROUP)
+
+        writer_a.write(encode_frame(MsgType.CHAT_PRIVATE, {
+            "msg_id": "a-2", "to": "bob", "text": "悄悄话",
+        }))
+        await writer_a.drain()
+        private = await read_until(reader_b, MsgType.CHAT_PRIVATE)
+
+        writer_a.write(encode_frame(MsgType.CHAT_GROUP, {"msg_id": "a-3", "text": "群二"}))
+        await writer_a.drain()
+        second = await read_until(reader_b, MsgType.CHAT_GROUP)
+
+        assert second["seq"] == first["seq"] + 2      # 中间那一格被私聊吃掉
+        assert private["seq"] == first["seq"] + 1
     finally:
         for w in (writer_a, writer_b):
             w.close()

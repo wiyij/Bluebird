@@ -16,15 +16,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import time
 
 from server.connection import Client
+from server.heartbeat import expired
 from server.router import Router
-from shared.config import Config, parse_args
+from shared.config import IDLE_TIMEOUT, SWEEP_INTERVAL, Config, parse_args
 from shared.console import setup_console
-from shared.errors import ErrorCode
+from shared.errors import ErrorCode, message_for
 from shared.protocol import (COLORS, DEFAULT_COLOR, HEADER_SIZE, MAX_TEXT_BYTES,
                              MsgType, ProtocolError, encode_frame, is_valid_color, read_frame)
 
@@ -36,22 +38,32 @@ NICKNAME_RE = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fa5]{1,16}$")
 #: 登录时限（协议第 8 章）：连上 10 s 内不发 LOGIN_REQ 就关掉，防占位连接
 LOGIN_TIMEOUT = 10.0
 
-#: 离场原因 → 系统消息里的说法
+#: 离场原因 → 系统消息里的说法。键必须落在协议第 4.1 章允许的取值内
+#: （``logout`` / ``disconnect``）；「超时下线」这种更细的说法放 ``leave_note``，
+#: 不要往 ``reason`` 里塞协议没有的值。
 LEAVE_TEXT = {
     "logout": "退出了",
     "disconnect": "离线了",
-    "timeout": "超时下线",
-    "kicked": "被移出",
 }
 
 
 class ChatServer:
     """在线昵称表 + 消息路由器。"""
 
-    def __init__(self, config: Config, *, login_timeout: float = LOGIN_TIMEOUT) -> None:
+    def __init__(
+        self,
+        config: Config,
+        *,
+        login_timeout: float = LOGIN_TIMEOUT,
+        idle_timeout: float = IDLE_TIMEOUT,
+        sweep_interval: float = SWEEP_INTERVAL,
+    ) -> None:
         self.config = config
         self.login_timeout = login_timeout
+        self.idle_timeout = idle_timeout
+        self.sweep_interval = sweep_interval
         self._server: asyncio.AbstractServer | None = None
+        self._sweeper: asyncio.Task | None = None
         self._clients: dict[str, Client] = {}      # nickname -> Client
         self._seq = 0
         self.router = Router()
@@ -78,21 +90,24 @@ class ChatServer:
             await client.send_error(ErrorCode.BAD_FRAME, "已经登录过了")
             return
 
-        nickname = str(body.get("username", "")).strip()
-        if not NICKNAME_RE.match(nickname):
-            await client.send(MsgType.LOGIN_RESP, {
-                "code": int(ErrorCode.BAD_NICKNAME),
-                "message": "昵称需 1—16 个字符，仅支持中英文、数字与下划线",
-            })
-            client.state = "closing"
+        # 协议 §0 纪律 1：必填字段缺失或类型不对 → 2003，绝不「补个默认值」。
+        # 登录阶段按 §4.2 走 LOGIN_RESP；这是 §5 里 2003「连接保持」的例外，
+        # 因为此时还没有会话可保持。
+        username = body.get("username")
+        client_ver = body.get("client_ver")
+        if not isinstance(username, str) or not isinstance(client_ver, str) or not client_ver.strip():
+            await self._refuse_login(
+                client, ErrorCode.BAD_FRAME,
+                "LOGIN_REQ 需要 username 与 client_ver 两个字符串字段",
+            )
             return
 
+        nickname = username.strip()
+        if not NICKNAME_RE.match(nickname):
+            await self._refuse_login(client, ErrorCode.BAD_NICKNAME)
+            return
         if nickname in self._clients:
-            await client.send(MsgType.LOGIN_RESP, {
-                "code": int(ErrorCode.NICK_TAKEN),
-                "message": "该昵称已有人使用，请换一个",
-            })
-            client.state = "closing"
+            await self._refuse_login(client, ErrorCode.NICK_TAKEN)
             return
 
         color = body.get("color", DEFAULT_COLOR)
@@ -103,6 +118,7 @@ class ChatServer:
         client.color = color
         client.since = int(time.time())
         client.state = "authed"
+        client.touch()                         # 登录这一帧也算「活着」
         self._clients[nickname] = client
 
         await client.send(MsgType.LOGIN_RESP, {
@@ -118,6 +134,15 @@ class ChatServer:
         await self._broadcast(MsgType.USER_JOIN, client.profile(), exclude=client)
         await self._system(f"{nickname} 进入聊天室", exclude=client)
         log.info("login: %s（在线 %d 人）", nickname, len(self._clients))
+
+    async def _refuse_login(self, client: Client, code: ErrorCode,
+                            message: str | None = None) -> None:
+        """登录失败统一出口：回 LOGIN_RESP{code≠0} 后关闭（协议 §4.2）。"""
+        await client.send(MsgType.LOGIN_RESP, {
+            "code": int(code),
+            "message": message or message_for(code),
+        })
+        client.state = "closing"
 
     async def _on_logout(self, client: Client, body: dict) -> None:
         client.leave_reason = "logout"
@@ -220,8 +245,12 @@ class ChatServer:
                 continue
             try:
                 await client.send_frame(frame)
-            except (ConnectionError, OSError):
-                log.warning("write failed, dropping %s", client.label)
+            except (TimeoutError, ConnectionError, OSError, RuntimeError) as exc:
+                # 写不进去（对端不读 / 已断 / 缓冲满）就立刻断掉这条。
+                # 只 log 不处理会留下「幽灵用户」：昵称一直被占，本人重连回 1001。
+                log.warning("write failed, aborting %s: %s: %s",
+                            client.label, exc.__class__.__name__, exc)
+                client.abort()
 
     async def _system(self, text: str, level: str = "info",
                       exclude: Client | None = None) -> None:
@@ -240,7 +269,18 @@ class ChatServer:
         )
         for sock in self._server.sockets:
             log.info("listening on %s:%s", *sock.getsockname()[:2])
+        self._sweeper = asyncio.create_task(self._sweep_loop(), name="heartbeat-sweep")
         return self._server
+
+    async def _sweep_loop(self) -> None:
+        """A17：每 5 s 扫一次，45 s 没收到任何帧就判死并广播下线（协议 §4.6）。"""
+        while True:
+            await asyncio.sleep(self.sweep_interval)
+            for client in expired(list(self._clients.values()), timeout=self.idle_timeout):
+                log.info("heartbeat timeout: %s（%.0f s 无帧）", client.label, self.idle_timeout)
+                client.leave_reason = "disconnect"      # 协议 §4.6 就是这么定的
+                client.leave_note = "超时下线"          # 只有系统提示用这个说法
+                client.abort()                          # 读循环醒来 → _forget → 广播下线
 
     @property
     def port(self) -> int:
@@ -254,6 +294,11 @@ class ChatServer:
         return len(self._clients)
 
     async def close(self) -> None:
+        if self._sweeper is not None:
+            self._sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._sweeper
+            self._sweeper = None
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
@@ -275,6 +320,7 @@ class ChatServer:
         log.info("client connected: %s", client.label)
         # max_frame 是整帧上限，报文体上限要减掉 8 字节首部
         body_limit = self.config.max_frame - HEADER_SIZE
+        tolerated_bad_frame = False
         try:
             # ---- 登录阶段：10 s 内必须发来 LOGIN_REQ（协议 §1、§6、§8）----
             try:
@@ -284,6 +330,7 @@ class ChatServer:
             except asyncio.TimeoutError:
                 log.info("login timeout: %s", client.label)
                 return                      # finally 里关连接
+            client.touch()
             if msg_type != MsgType.LOGIN_REQ:
                 # 未登录就发业务帧/心跳 → 1006 并断开
                 log.warning("frame 0x%02X before login from %s", msg_type, client.label)
@@ -292,7 +339,18 @@ class ChatServer:
             await self.router.dispatch(client, msg_type, body)
 
             while client.state != "closing":
-                msg_type, body = await read_frame(reader, body_limit)
+                try:
+                    msg_type, body = await read_frame(reader, body_limit)
+                except ProtocolError as exc:
+                    # 协议 §2、§5：2003 容错一次（帧边界没乱，可以接着读）；
+                    # 坏 magic / 超长帧 / 版本不符一律断开，交给外层统一收尾。
+                    if exc.code != ErrorCode.BAD_FRAME or tolerated_bad_frame:
+                        raise
+                    tolerated_bad_frame = True
+                    log.warning("tolerated one bad frame from %s: %s", client.label, exc)
+                    await client.send_error(exc.code, exc.detail or exc.reason)
+                    continue
+                client.touch()             # A17：任何帧都刷新 last_active
                 log.debug("recv type=0x%02X body=%s", msg_type, body)
                 await self.router.dispatch(client, msg_type, body)
 
@@ -323,7 +381,8 @@ class ChatServer:
                 "nickname": nickname,
                 "reason": client.leave_reason,
             })
-            await self._system(f"{nickname} {LEAVE_TEXT.get(client.leave_reason, '离线了')}",
+            note = client.leave_note or LEAVE_TEXT.get(client.leave_reason, "离线了")
+            await self._system(f"{nickname} {note}",
                                level="info" if client.leave_reason == "logout" else "warn")
         await client.close()
 

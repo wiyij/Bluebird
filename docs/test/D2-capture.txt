@@ -1,0 +1,25 @@
+服务端 127.0.0.1:8888；三个 tap 分别为 alice:8889、bob:8890、carol:8891
+
+===== 帧计数 =====
+alice  总帧  14  CHAT_GROUP  4  CHAT_PRIVATE  2
+bob    总帧  11  CHAT_GROUP  4  CHAT_PRIVATE  1
+carol  总帧   8  CHAT_GROUP  4  CHAT_PRIVATE  0
+
+===== 判据 =====
+[PASS] 三条连接都抓到了帧（抓包链路有效）  alice=14, bob=11, carol=8
+[PASS] alice 的私聊出得去：C→S 1 条 + S→C 1 条回显  CHAT_PRIVATE=2
+[PASS] bob 收到 1 条私聊  CHAT_PRIVATE=1
+[PASS] carol 的字节流里 0 条私聊（隔离成立）  CHAT_PRIVATE=0
+[PASS] carol 同时在正常收发群聊（不是没连上）  CHAT_GROUP=4（alice 发言 + bob 发言 + carol 自己的回显）
+[PASS] carol 的日志里搜不到私聊正文  0 处命中
+[PASS] 三端都登录成功  
+
+===== carol 的字节流（全量，证明里面没有 0x11）=====
+09:59:20.018  C→S   63 B  type=0x01 LOGIN_REQ    len=55
+09:59:20.018  S→C   78 B  type=0x02 LOGIN_RESP   len=70
+09:59:20.018  S→C  195 B  type=0x20 USER_LIST    len=187
+09:59:22.315  S→C  104 B  type=0x10 CHAT_GROUP   len=96
+09:59:23.116  S→C   88 B  type=0x10 CHAT_GROUP   len=80
+09:59:24.716  C→S   76 B  type=0x10 CHAT_GROUP   len=68
+09:59:24.717  S→C  122 B  type=0x10 CHAT_GROUP   len=114
+09:59:25.517  C→S   10 B  type=0x03 LOGOUT       len=2

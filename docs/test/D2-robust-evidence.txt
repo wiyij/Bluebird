@@ -1,0 +1,25 @@
+心跳参数：15 s 一次；本脚本用 0.5 s 判死 + 0.1 s 扫描做加速
+
+===== A 服务端 =====
+[PASS] A17 心跳判死：长时间不发帧的连接被踢，广播 USER_LEAVE  {'nickname': 'alice', 'reason': 'disconnect'}
+[PASS] A17 系统提示写「超时下线」（reason 仍守协议，只有 logout/disconnect）  text=alice 超时下线
+[PASS] A17 被踢的连接从在线表里摘掉  在线 1 人
+[PASS] A17 判死之后昵称立即可复用（不会有幽灵用户占着）  code=0
+[PASS] A17 持续 PING 的连接不会被误杀（任何帧都刷新 last_active）  在线 1 人
+[PASS] P0 写不进去的那条被断开，健康客户端照常收到消息  耗时 0.00 s
+[PASS] P0 被断开的连接从在线表里消失（不再有幽灵用户）  在线 ['bob', 'carol']
+[PASS] P2 坏 JSON 回 2003  code=2003
+[PASS] P2 2003 之后连接保持（协议 §5「容错一次」）  PING→PONG 正常
+[PASS] P2 第二次坏帧才断开  读到 0 字节
+[PASS] P2 缺 client_ver 回 LOGIN_RESP{2003} 并断开（协议 §0 纪律 1）  code=2003
+
+===== B 客户端（真子进程）=====
+[PASS] P0 服务端被杀后，CLI 自己退出（不需要按回车）  0.2 s 后退出
+[PASS] P0 断线提示是中文，不是 Python 异常 repr  [连接已断开] 网络中断（ConnectionResetError）
+
+客户端最后几行输出：
+    10:02:31  [system：在线 1 人] alice(black)
+    
+    [连接已断开] 网络中断（ConnectionResetError）
+
+合计 13 项：PASS 13，FAIL 0

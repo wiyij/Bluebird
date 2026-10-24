@@ -1,4 +1,4 @@
-﻿"""全局配置：命令行参数 > 内置默认值。
+"""全局配置：命令行参数 > 内置默认值。
 
 只依赖标准库。服务端与客户端都从这里取配置，避免各写一套 argparse。
 
@@ -18,6 +18,14 @@ DEFAULT_PORT = 8888               # 聊天主通道
 DEFAULT_MAX_FRAME = 65536         # 单帧上限（含 8 字节首部）
 DEFAULT_LOG_LEVEL = "INFO"
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
+# ---- 心跳与超时（协议第 4.6、8 章；服务端与客户端共用一份）----
+HEARTBEAT_INTERVAL = 15.0         # 客户端多久发一次 PING
+IDLE_TIMEOUT = 45.0               # 服务端多久收不到任何帧就判死（= 3 × 心跳）
+SWEEP_INTERVAL = 5.0              # 服务端扫描周期（判死误差 ≤ 5 s）
+
+# ---- 单次写超时（不是协议字段，是防止一个卡死的对端拖住整个房间）----
+SEND_TIMEOUT = 5.0
 
 
 @dataclass(frozen=True, slots=True)

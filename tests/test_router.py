@@ -84,12 +84,12 @@ async def test_protocol_error_in_handler_maps_to_its_code() -> None:
 
     @router.handler(MsgType.CHAT_GROUP)
     async def too_long(client, body):
-        raise ProtocolError("too_long", "超过 8192 字节", code=ErrorCode.MESSAGE_TOO_LONG)
+        raise ProtocolError("too_long", "超过 2000 字节", code=ErrorCode.MESSAGE_TOO_LONG)
 
     client = FakeClient()
     await router.dispatch(client, int(MsgType.CHAT_GROUP), {})
 
-    assert client.errors == [(int(ErrorCode.MESSAGE_TOO_LONG), "超过 8192 字节")]
+    assert client.errors == [(int(ErrorCode.MESSAGE_TOO_LONG), "超过 2000 字节")]
 
 
 def test_registered_types_are_sorted_and_unique() -> None:

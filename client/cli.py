@@ -1,4 +1,4 @@
-"""命令行客户端 v2：登录、群聊、私聊、改色。
+"""命令行客户端 v2：登录、群聊、私聊、改色、心跳。
 
     py -3.13 -m client.cli --name alice                 # 连 127.0.0.1:8888
     py -3.13 -m client.cli --host 192.168.1.10 --name bob --color green
@@ -10,21 +10,29 @@
     /who                看当前在线
     /quit               退出（等价于 Ctrl+C）
 
-两个异步陷阱必须避开：
-1. ``input()`` 是阻塞的，直接调会钉死事件循环 → 用 ``asyncio.to_thread``；
-2. 收发不能串行 → 两个 task 并行，谁先结束就取消另一个。
+四个异步陷阱必须避开（前两个是 2026-10-24 复审抓到并修掉的）：
+
+1. ``input()`` 是阻塞的，直接调会钉死事件循环 → 放进**守护线程**，用
+   ``call_soon_threadsafe`` 把行送回事件循环。不能用 ``asyncio.to_thread``：
+   任务被 cancel 后线程仍卡在 ``input()`` 里，而 ``asyncio.run`` 收尾时会等线程池，
+   于是「服务端断了，客户端却退不出去，要敲一下回车」。
+2. 收发不能串行 → 三个 task 并行（收、发、心跳），谁先结束就取消另外两个。
+3. 网络异常必须捕获：``ConnectionResetError`` 不是 ``IncompleteReadError``，
+   漏掉就会把一行 Python 异常 repr 甩到用户脸上。
+4. 写也要有超时：对端不读时 ``drain()`` 会永远挂着，心跳就再也发不出去。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 
-from shared.config import Config, build_parser
+from shared.config import (HEARTBEAT_INTERVAL, IDLE_TIMEOUT, SEND_TIMEOUT, Config,
+                           build_parser)
 from shared.console import setup_console
-from shared.errors import ErrorCode
-from shared.protocol import (COLORS, DEFAULT_COLOR, MsgType, ProtocolError,
+from shared.protocol import (COLORS, DEFAULT_COLOR, HEADER_SIZE, MsgType, ProtocolError,
                              encode_frame, read_frame)
 
 CONNECT_TIMEOUT = 5.0
@@ -53,6 +61,10 @@ class ChatClient:
         self.online: dict[str, dict] = {}
         self._seq = 0
         self._closed = False
+        self._lines: asyncio.Queue[str | None] = asyncio.Queue()
+        self._last_rx = time.monotonic()
+        # 客户端也遵守同一份帧上限；服务端配了 --max-frame 时两边一致
+        self._max_body = max(1, config.max_frame - HEADER_SIZE)
 
     # ---------------------------------------------------------------- 入口
 
@@ -81,6 +93,7 @@ class ChatClient:
 
         print(f"已进入聊天室：{self.name}（颜色 {self.color}）　{target}")
         print("直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit")
+        self._start_stdin_pump()
         try:
             await self._run_loops()
         finally:
@@ -98,12 +111,17 @@ class ChatClient:
         await self.writer.drain()
 
         try:
-            msg_type, body = await asyncio.wait_for(read_frame(self.reader), LOGIN_TIMEOUT)
+            msg_type, body = await asyncio.wait_for(
+                read_frame(self.reader, self._max_body), LOGIN_TIMEOUT
+            )
         except asyncio.TimeoutError:
             print("登录超时：服务端没有回应")
             return 2
         except asyncio.IncompleteReadError:
             print("登录失败：服务端关闭了连接")
+            return 2
+        except (ConnectionError, OSError) as exc:
+            print(f"登录失败：网络中断（{exc.__class__.__name__}）")
             return 2
 
         if msg_type != MsgType.LOGIN_RESP:
@@ -117,12 +135,34 @@ class ChatClient:
 
         self.name = body.get("nickname", self.name)
         self.color = body.get("color", self.color)
+        self._last_rx = time.monotonic()
         return 0
+
+    def _start_stdin_pump(self) -> None:
+        """把阻塞的 input() 挪进守护线程，避免它拖住进程退出。"""
+        loop = asyncio.get_running_loop()
+        queue = self._lines
+
+        def pump() -> None:
+            while True:
+                try:
+                    line = input()
+                except (EOFError, KeyboardInterrupt):
+                    line = None
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, line)
+                except RuntimeError:      # 事件循环已关闭，线程自行收工
+                    return
+                if line is None:          # 输入结束，发一个哨兵让发送循环收尾
+                    return
+
+        threading.Thread(target=pump, name="stdin", daemon=True).start()
 
     async def _run_loops(self) -> None:
         tasks = {
             asyncio.create_task(self._recv_loop(), name="recv"),
             asyncio.create_task(self._send_loop(), name="send"),
+            asyncio.create_task(self._heartbeat_loop(), name="heartbeat"),
         }
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
@@ -131,7 +171,7 @@ class ChatClient:
         for task in done:
             exc = task.exception()
             if exc and not isinstance(exc, asyncio.CancelledError):
-                print(f"[异常] {exc!r}")
+                print(f"[异常] 网络任务意外结束：{exc.__class__.__name__}: {exc}")
 
     async def _close(self) -> None:
         self._closed = True
@@ -143,19 +183,31 @@ class ChatClient:
         except (ConnectionError, OSError):
             pass
 
+    def _abort(self) -> None:
+        """立即断：本地已经判定这条连接死了，不要再等 TCP 慢慢超时。"""
+        self._closed = True
+        transport = getattr(self.writer, "transport", None) if self.writer else None
+        if transport is not None:
+            transport.abort()
+
     # ---------------------------------------------------------------- 收
 
     async def _recv_loop(self) -> None:
         assert self.reader is not None
         while True:
             try:
-                msg_type, body = await read_frame(self.reader)
+                msg_type, body = await read_frame(self.reader, self._max_body)
             except asyncio.IncompleteReadError:
-                print("[连接已断开]")
+                print("\n[连接已断开] 服务端关闭了连接")
                 return
             except ProtocolError as exc:
-                print(f"[协议错误] {exc}")
+                print(f"\n[协议错误] {exc.detail or exc.reason}")
                 return
+            except (ConnectionError, OSError) as exc:
+                # 断网、服务端被杀、路由不可达都从这里出来（典型是 ConnectionResetError）
+                print(f"\n[连接已断开] 网络中断（{exc.__class__.__name__}）")
+                return
+            self._last_rx = time.monotonic()
             self._render(msg_type, body)
 
     def _render(self, msg_type: int, body: dict) -> None:
@@ -190,11 +242,9 @@ class ChatClient:
     # ---------------------------------------------------------------- 发
 
     async def _send_loop(self) -> None:
-        assert self.writer is not None
         while not self._closed:
-            try:
-                line = await asyncio.to_thread(input, "")
-            except EOFError:
+            line = await self._lines.get()
+            if line is None:
                 print("\n[输入结束]")
                 return
             if self._closed:
@@ -250,12 +300,33 @@ class ChatClient:
         assert self.writer is not None
         try:
             self.writer.write(encode_frame(msg_type, body))
-            await self.writer.drain()
+            await asyncio.wait_for(self.writer.drain(), SEND_TIMEOUT)
+        except asyncio.TimeoutError:
+            print(f"[发送失败] 对端 {SEND_TIMEOUT:.0f} 秒没有收数据，判定断线")
+            self._abort()
         except ValueError as exc:
             print(f"[发送失败] {exc}")
         except (ConnectionError, OSError):
             print("[发送失败] 连接已断开")
             self._closed = True
+
+    # ---------------------------------------------------------------- 心跳
+
+    async def _heartbeat_loop(self) -> None:
+        """A17：每 15 s 一个 PING；45 s 收不到任何帧就判死（= 连丢 3 个 PONG）。
+
+        判据不是「有没有收到 PONG」而是「有没有收到任何帧」：服务端在忙时
+        PONG 可能排在别的消息后面，只盯 PONG 会误判。
+        """
+        while not self._closed:
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+            if self._closed:
+                return
+            if time.monotonic() - self._last_rx > IDLE_TIMEOUT:
+                print(f"\n[连接超时] {IDLE_TIMEOUT:.0f} 秒没有收到服务端任何数据，判定断线")
+                self._abort()
+                return
+            await self._send(MsgType.PING)
 
     def _next_msg_id(self) -> str:
         self._seq += 1
