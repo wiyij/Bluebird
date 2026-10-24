@@ -240,7 +240,7 @@ def build(out_path: Path) -> None:
     table(doc, ["项目", "内容"], [
         ["今日主题", "把「能用」变成「好用」：图形界面、在线列表、私聊窗、颜色设置、断线提示"],
         ["代码提交", COMMITS],
-        ["测试", "89 passed（昨日 74）"],
+        ["测试", "92 passed（昨日 74；新增 3 条空房自退）"],
         ["界面自动走查", "33/33 全通过（真 tkinter 窗口 + 真服务端）"],
         ["换网复验", "T13：手机热点 172.20.10.5 上 11/11（走真实网卡，非回环）"],
         ["旧判据回归", "D1 13/13、D2 20/20、D1-CLI 7/7、D2-CLI 9/9、健壮性 13/13，全部未回归"],
@@ -341,7 +341,7 @@ def build(out_path: Path) -> None:
         ("第 12 步　收尾：单测、回归、文档",
          "补界面公共零件单测；把 D1/D2 的所有判据重跑一遍；写 D3.md 与本文。",
          "回归测试、变异检查（改坏一处必须变红）、证据可复现",
-         "89 passed；13/13、20/20、9/9、7/7 全绿。"),
+         "92 passed；13/13、20/20、9/9、7/7 全绿。"),
     ]
     for title, what, knowledge, judge in steps:
         heading(doc, title, 2)
@@ -398,11 +398,16 @@ def build(out_path: Path) -> None:
     heading(doc, "七　怎么验证今天的成果", 1)
     para(doc, "验证分三层：一条命令的自动验收（最快）、手工三端演示（最直观）、"
               "断线演示（D3 的门禁）。")
+    para(doc, "**最省事的启动方式**：双击仓库根目录（桌面上也放了一份）的「Bluebird 聊天室」快捷方式——"
+              "8888 上没有服务端就先在后台起一个（日志写 logs/server.log），随后直接弹出登录窗；"
+              "再双击一次只多开一个客户端窗口，不会起第二个服务端。关掉所有窗口后，"
+              "服务端在最后一个客户端离开 2 分钟后自动退出（`--idle-exit 120`），"
+              "不会留下看不见的后台进程占着端口。")
 
     heading(doc, "7.1　一条命令：自动验收", 2)
     code_block(doc, """
 cd D:\\Bluebird
-.\\.venv\\Scripts\\python.exe -m pytest                  # 期望 89 passed
+.\\.venv\\Scripts\\python.exe -m pytest                  # 期望 92 passed
 .\\.venv\\Scripts\\python.exe tools\\verify_d3_gui.py     # 期望 PASS 33 / FAIL 0，约 20 秒
 """)
     para(doc, "走查脚本会自己起服务端（占一个空闲端口），开一个真的 tkinter 窗口当 alice，"

@@ -36,6 +36,9 @@ class Config:
     port: int = DEFAULT_PORT
     max_frame: int = DEFAULT_MAX_FRAME
     log_level: str = DEFAULT_LOG_LEVEL
+    #: 服务端专用：最后一个客户端走了以后，再过这么多秒就自己退出（0 = 不退出）。
+    #: 桌面快捷方式启动时会打开它，免得关掉窗口后留下一个看不见的服务端进程。
+    idle_exit: float = 0.0
 
     def describe(self) -> str:
         """启动时打印的一行生效配置（B9-04）。"""
@@ -86,6 +89,10 @@ def build_parser(prog: str = "bluebird", default_host: str = DEFAULT_HOST) -> ar
         "--log-level", default=DEFAULT_LOG_LEVEL, type=_log_level,
         help="日志级别",
     )
+    parser.add_argument(
+        "--idle-exit", default=0.0, type=float, metavar="秒",
+        help="服务端专用：最后一个客户端离开后，再过这么多秒自动退出（0 = 不退出）",
+    )
     return parser
 
 
@@ -97,6 +104,7 @@ def parse_args(argv: list[str] | None = None, prog: str = "bluebird", default_ho
         port=ns.port,
         max_frame=ns.max_frame,
         log_level=ns.log_level,
+        idle_exit=ns.idle_exit,
     )
 
 

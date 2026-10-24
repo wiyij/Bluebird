@@ -624,7 +624,7 @@ async def test_private_message_advances_the_global_seq(server: ChatServer) -> No
     """seq 是**全局**序号，私聊也占一格：GUI 不能假设群聊 seq 连续。
 
     协议第 4.1 章只承诺「全局单调递增」，没承诺「无空洞」。这条测试把
-    这个容易误解的点钉住，免得 D3 的 GUI 用 seq == last + 1 去判丢包。
+    这个容易误解的点钉住，免得 GUI 用 seq == last + 1 去判丢包。
     """
     reader_a, writer_a = await connect(server)
     reader_b, writer_b = await connect(server)
@@ -651,3 +651,47 @@ async def test_private_message_advances_the_global_seq(server: ChatServer) -> No
         for w in (writer_a, writer_b):
             w.close()
             await w.wait_closed()
+
+
+# ---------------------------------------------------------------- 空房自动退出
+# 桌面快捷方式起的服务端带 --idle-exit：关掉最后一个客户端窗口后不该留下
+# 一个看不见的后台进程（下次双击会连到那个跑着旧代码的服务端）。
+
+
+@pytest.fixture
+async def lonely_server():
+    instance = ChatServer(
+        Config(host="127.0.0.1", port=0, log_level="WARNING"),
+        sweep_interval=0.1, exit_when_idle=0.3,
+    )
+    await instance.start()
+    yield instance
+    await instance.close()
+
+
+async def test_idle_exit_disabled_by_default(server: ChatServer) -> None:
+    assert server.exit_when_idle == 0
+    assert server.serving is True
+
+
+async def test_server_exits_after_the_last_client_leaves(lonely_server: ChatServer) -> None:
+    reader, writer = await connect(lonely_server)
+    await login(reader, writer, "alice")
+    assert lonely_server.serving is True
+
+    writer.write(encode_frame(MsgType.LOGOUT))
+    await writer.drain()
+    writer.close()
+    await writer.wait_closed()
+
+    for _ in range(60):                       # 最多等 3 s（阈值 0.3 s + 0.1 s 扫描）
+        if not lonely_server.serving:
+            break
+        await asyncio.sleep(0.05)
+    assert lonely_server.serving is False
+
+
+async def test_server_waits_for_the_first_client_before_counting(lonely_server: ChatServer) -> None:
+    """还没人来过就永远不退出，否则启动后干等一会儿的服务端会莫名消失。"""
+    await asyncio.sleep(0.7)                  # 比 exit_when_idle 长一倍多
+    assert lonely_server.serving is True

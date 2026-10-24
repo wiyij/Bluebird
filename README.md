@@ -9,7 +9,7 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | 模块 | 状态 |
 | --- | --- |
 | 应用层协议 v2（15 种类型、10 个错误码） | ✅ 已冻结（tag `proto-v2`） |
-| 帧编解码 + 89 条单元/联调测试 | ✅ |
+| 帧编解码 + 92 条单元/联调测试 | ✅ |
 | 服务端：昵称登录、群聊、一对一私聊、颜色广播、上下线通知 | ✅ |
 | 服务端：登录时限 10 s、未登录 1006、滑动窗口限流 2002、系统消息 `CHAT_SYSTEM` | ✅ |
 | 心跳与超时踢除（15 s / 45 s / 5 s 扫描） | ✅ |
@@ -35,6 +35,9 @@ py -3.13 -V            # Python 3.13.7
 
 ```
 Bluebird/
+├─ start_chat.py    一键启动：没有服务端就先起一个，再打开登录窗（快捷方式指向它）
+├─ assets/
+│   └─ bluebird.ico     快捷方式图标（tools/make_icon.py 生成）
 ├─ shared/        协议、配置、错误码（前后端共用）
 │   ├─ config.py        命令行参数：--host / --port / --max-frame / --log-level
 │   ├─ protocol.py      帧编解码、MsgType、颜色常量、ProtocolError
@@ -66,8 +69,10 @@ Bluebird/
 │   ├─ verify_robust.py 健壮性验收：心跳判死、慢客户端、坏帧容错、断线退出
 │   ├─ verify_d3_gui.py D3 验收：开真窗口走查 33 项，可 --shots 出截图、--host 换地址
 │   ├─ verify_d3_net.py D3 验收：T13 换网复验（走真实网卡，不经过 127.0.0.1）
+│   ├─ make_shortcut.py 生成「Bluebird 聊天室」快捷方式（仓库根 + 桌面）
+│   ├─ make_icon.py     生成快捷方式图标 assets/bluebird.ico
 │   └─ build_d3_doc.py  生成桌面工作汇总 docx
-├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 28 + 客户端 16 + 界面 6 = 89 条
+├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 31 + 客户端 16 + 界面 6 = 92 条
 └─ docs/
     ├─ protocol.md      应用层协议 v2（唯一事实源）
     ├─ 三阶段实施路线.md
@@ -78,7 +83,29 @@ Bluebird/
 
 ## 快速开始
 
-**图形界面**（推荐演示用）：先起服务端，再开三个客户端窗口。
+### 最省事：双击快捷方式
+
+仓库根目录和桌面上各有一个 **`Bluebird 聊天室`** 快捷方式，双击即可：
+
+- 8888 上没有服务端 → 后台起一个（日志 `logs/server.log`），随后弹出登录窗；
+- 已经有服务端 → 只多开一个客户端窗口（演示三端就双击三次）；
+- 关掉所有窗口后，服务端**最后一个客户端离开 2 分钟自动退出**（`--idle-exit 120`），
+  不会留下看不见的后台进程。
+
+要连别人机器上的服务端：双击后把登录窗里的地址改成对方 IP 即可；
+也可以建一个只开客户端的快捷方式：
+
+```powershell
+py -3.13 tools\make_shortcut.py          # 重建快捷方式（仓库根 + 桌面）
+py -3.13 start_chat.py --no-server       # 只开客户端（连别人机器）
+py -3.13 start_chat.py --host 192.168.1.10
+```
+
+> 快捷方式里存的是绝对路径：**把仓库挪了位置就要重新跑一次 `make_shortcut.py`**。
+
+### 图形界面（手动起）
+
+先起服务端，再开三个客户端窗口。
 
 ```powershell
 py -3.13 -m server.server                          # 终端 1：监听 0.0.0.0:8888
@@ -127,7 +154,7 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 ## 测试
 
 ```powershell
-.venv\Scripts\python.exe -m pytest                 # 89 passed
+.venv\Scripts\python.exe -m pytest                 # 92 passed
 .venv\Scripts\python.exe tools\verify_d3_gui.py    # D3 界面走查 33 项（自己起服务端，约 20 秒）
 .venv\Scripts\python.exe tools\verify_d3_gui.py --shots   # 顺便把截图写到 docs/gui/
 .venv\Scripts\python.exe tools\verify_d3_gui.py --host 172.20.10.5   # 换网复验：走真实网卡

@@ -57,11 +57,16 @@ class ChatServer:
         login_timeout: float = LOGIN_TIMEOUT,
         idle_timeout: float = IDLE_TIMEOUT,
         sweep_interval: float = SWEEP_INTERVAL,
+        exit_when_idle: float = 0.0,
     ) -> None:
         self.config = config
         self.login_timeout = login_timeout
         self.idle_timeout = idle_timeout
         self.sweep_interval = sweep_interval
+        #: >0 时：最后一个客户端走了以后再等这么久，服务端自己退出（桌面快捷方式用）
+        self.exit_when_idle = exit_when_idle if exit_when_idle > 0 else config.idle_exit
+        self._empty_since: float | None = None
+        self._had_client = False
         self._server: asyncio.AbstractServer | None = None
         self._sweeper: asyncio.Task | None = None
         self._clients: dict[str, Client] = {}      # nickname -> Client
@@ -119,6 +124,8 @@ class ChatServer:
         client.since = int(time.time())
         client.state = "authed"
         client.touch()                         # 登录这一帧也算「活着」
+        self._had_client = True                # 有过客人之后才谈「空房超时」
+        self._empty_since = None
         self._clients[nickname] = client
 
         await client.send(MsgType.LOGIN_RESP, {
@@ -273,7 +280,12 @@ class ChatServer:
         return self._server
 
     async def _sweep_loop(self) -> None:
-        """A17：每 5 s 扫一次，45 s 没收到任何帧就判死并广播下线（协议 §4.6）。"""
+        """A17：每 5 s 扫一次，45 s 没收到任何帧就判死并广播下线（协议 §4.6）。
+
+        顺带管「空房自动收工」：桌面快捷方式起的服务端带 ``--idle-exit``，
+        最后一个客户端走了以后再等一会儿就自己退出，免得关掉窗口后留下一个
+        看不见的后台进程（下次双击还会连到那个跑着旧代码的服务端）。
+        """
         while True:
             await asyncio.sleep(self.sweep_interval)
             for client in expired(list(self._clients.values()), timeout=self.idle_timeout):
@@ -281,6 +293,20 @@ class ChatServer:
                 client.leave_reason = "disconnect"      # 协议 §4.6 就是这么定的
                 client.leave_note = "超时下线"          # 只有系统提示用这个说法
                 client.abort()                          # 读循环醒来 → _forget → 广播下线
+
+            if self.exit_when_idle <= 0 or not self._had_client:
+                continue                                # 还没人来过就永远不退出
+            if self._clients:
+                self._empty_since = None
+                continue
+            if self._empty_since is None:
+                self._empty_since = time.monotonic()
+                log.info("房间空了，%.0f s 后自动退出", self.exit_when_idle)
+            elif time.monotonic() - self._empty_since >= self.exit_when_idle:
+                log.info("空闲超时，服务端退出")
+                if self._server is not None:
+                    self._server.close()                # serve_forever 随之返回
+                return
 
     @property
     def port(self) -> int:
@@ -292,6 +318,11 @@ class ChatServer:
     @property
     def client_count(self) -> int:
         return len(self._clients)
+
+    @property
+    def serving(self) -> bool:
+        """还在接连接吗（测试「空房自动退出」用）。"""
+        return self._server is not None and self._server.is_serving()
 
     async def close(self) -> None:
         if self._sweeper is not None:
@@ -310,8 +341,13 @@ class ChatServer:
     async def serve_forever(self) -> None:
         await self.start()
         assert self._server is not None
-        async with self._server:
-            await self._server.serve_forever()
+        try:
+            async with self._server:
+                await self._server.serve_forever()
+        except asyncio.CancelledError:
+            # Server.serve_forever() 在服务端被 close() 时就是抛这个异常表示「收工了」，
+            # 空房自退走的就是这条路；不接住的话退出时会打一段看不懂的 traceback。
+            log.info("服务端已关闭")
 
     # ---------------------------------------------------------------- 单连接
 

@@ -253,3 +253,9 @@ __marimo__/
 Thumbs.db
 Desktop.ini
 *.tmp
+
+# 本机产物：快捷方式里存的是绝对路径，换目录就失效；用 tools/make_shortcut.py 重新生成
+*.lnk
+
+# 双击启动后服务端与启动器写的日志
+logs/

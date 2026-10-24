@@ -157,6 +157,14 @@ class NetClient:
             self._closed.set()
             self._ready.set()
             try:
+                # stop() 把主协程取消掉时，收/发/心跳可能还挂着，
+                # 不先取消并回收就直接 close()，退出时会刷一屏
+                # 「Task was destroyed but it is pending」——看着像 bug，其实是收尾没做完。
+                pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                 loop.run_until_complete(loop.shutdown_asyncgens())
             finally:
                 loop.close()
