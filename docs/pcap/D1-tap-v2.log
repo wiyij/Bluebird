@@ -1,0 +1,36 @@
+08:51:55.218  C→S   63 B  type=0x01 LOGIN_REQ    len=55
+    43 48 02 01 00 00 00 37  |  {"username":"alice","client_ver":"2.0","color":"black"}
+08:51:55.218  C→S   61 B  type=0x01 LOGIN_REQ    len=53
+    43 48 02 01 00 00 00 35  |  {"username":"bob","client_ver":"2.0","color":"black"}
+08:51:55.218  S→C   78 B  type=0x02 LOGIN_RESP   len=70
+    43 48 02 02 00 00 00 46  |  {"code":0,"nickname":"alice","color":"black","server_time":1792803115}
+08:51:55.218  S→C   85 B  type=0x20 USER_LIST    len=77
+    43 48 02 20 00 00 00 4D  |  {"users":[{"nickname":"alice","color":"black","since":1792803115}],"count":1}
+08:51:55.219  S→C   76 B  type=0x02 LOGIN_RESP   len=68
+    43 48 02 02 00 00 00 44  |  {"code":0,"nickname":"bob","color":"black","server_time":1792803115}
+08:51:55.219  S→C  139 B  type=0x20 USER_LIST    len=131
+    43 48 02 20 00 00 00 83  |  {"users":[{"nickname":"alice","color":"black","since":1792803115},{"nickname":"bob","color":"black","since":1792803115}],"count":2}
+08:51:55.219  S→C   61 B  type=0x21 USER_JOIN    len=53
+    43 48 02 21 00 00 00 35  |  {"nickname":"bob","color":"black","since":1792803115}
+08:51:57.538  C→S   67 B  type=0x10 CHAT_GROUP   len=59
+    43 48 02 10 00 00 00 3B  |  {"msg_id":"alice-000001","text":"大家好，我是 alice"}
+08:51:57.538  S→C  113 B  type=0x10 CHAT_GROUP   len=105
+    43 48 02 10 00 00 00 69  |  {"seq":1,"from":"alice","text":"大家好，我是 alice","server_ts":1792803117,"msg_id":"alice-000001"}
+08:51:57.538  S→C  113 B  type=0x10 CHAT_GROUP   len=105
+    43 48 02 10 00 00 00 69  |  {"seq":1,"from":"alice","text":"大家好，我是 alice","server_ts":1792803117,"msg_id":"alice-000001"}
+08:51:58.539  C→S   52 B  type=0x10 CHAT_GROUP   len=44
+    43 48 02 10 00 00 00 2C  |  {"msg_id":"bob-000001","text":"收到 😀"}
+08:51:58.539  S→C   96 B  type=0x10 CHAT_GROUP   len=88
+    43 48 02 10 00 00 00 58  |  {"seq":2,"from":"bob","text":"收到 😀","server_ts":1792803118,"msg_id":"bob-000001"}
+08:51:58.539  S→C   96 B  type=0x10 CHAT_GROUP   len=88
+    43 48 02 10 00 00 00 58  |  {"seq":2,"from":"bob","text":"收到 😀","server_ts":1792803118,"msg_id":"bob-000001"}
+08:52:00.039  C→S   72 B  type=0x11 CHAT_PRIVATE len=64
+    43 48 02 11 00 00 00 40  |  {"msg_id":"alice-000002","to":"bob","text":"悄悄话只给你"}
+08:52:00.039  S→C  118 B  type=0x11 CHAT_PRIVATE len=110
+    43 48 02 11 00 00 00 6E  |  {"seq":3,"from":"alice","to":"bob","text":"悄悄话只给你","server_ts":1792803120,"msg_id":"alice-000002"}
+08:52:00.039  S→C  118 B  type=0x11 CHAT_PRIVATE len=110
+    43 48 02 11 00 00 00 6E  |  {"seq":3,"from":"alice","to":"bob","text":"悄悄话只给你","server_ts":1792803120,"msg_id":"alice-000002"}
+08:52:00.839  C→S   10 B  type=0x03 LOGOUT       len=2
+    43 48 02 03 00 00 00 02  |  {}
+08:52:00.839  C→S   10 B  type=0x03 LOGOUT       len=2
+    43 48 02 03 00 00 00 02  |  {}

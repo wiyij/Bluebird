@@ -1,0 +1,12 @@
+15:01:47.157  C→S   67 B  type=0x10 CHAT_GROUP   len=59
+    43 48 01 10 00 00 00 3B  |  {"msg_id":"alice-000001","text":"大家好，我是 alice"}
+15:01:47.157  S→C   67 B  type=0x10 CHAT_GROUP   len=59
+    43 48 01 10 00 00 00 3B  |  {"msg_id":"alice-000001","text":"大家好，我是 alice"}
+15:01:47.157  S→C   67 B  type=0x10 CHAT_GROUP   len=59
+    43 48 01 10 00 00 00 3B  |  {"msg_id":"alice-000001","text":"大家好，我是 alice"}
+15:01:47.657  C→S   52 B  type=0x10 CHAT_GROUP   len=44
+    43 48 01 10 00 00 00 2C  |  {"msg_id":"bob-000001","text":"收到 😀"}
+15:01:47.658  S→C   52 B  type=0x10 CHAT_GROUP   len=44
+    43 48 01 10 00 00 00 2C  |  {"msg_id":"bob-000001","text":"收到 😀"}
+15:01:47.658  S→C   52 B  type=0x10 CHAT_GROUP   len=44
+    43 48 01 10 00 00 00 2C  |  {"msg_id":"bob-000001","text":"收到 😀"}

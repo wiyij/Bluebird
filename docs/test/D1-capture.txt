@@ -1,0 +1,40 @@
+服务端 127.0.0.1:8888　tap 127.0.0.1:8889
+日志 docs\pcap\D1-tap-v2.log：18 帧（其中 CHAT_GROUP 6 帧）
+
+===== alice 终端 =====
+已进入聊天室：alice（颜色 black）　127.0.0.1:8889
+直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
+08:51:55  [system：在线 1 人] alice(black)
+08:51:55  [system：bob 进入聊天室]
+08:51:57  [alice：大家好，我是 alice]
+08:51:58  [bob：收到 😀]
+[在线 2 人] alice(black)、bob(black)
+08:52:00  [私聊 alice→bob：悄悄话只给你]
+
+===== bob 终端 =====
+已进入聊天室：bob（颜色 black）　127.0.0.1:8889
+直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
+08:51:55  [system：在线 2 人] alice(black)、bob(black)
+08:51:57  [alice：大家好，我是 alice]
+08:51:58  [bob：收到 😀]
+08:52:00  [私聊 alice→bob：悄悄话只给你]
+
+===== 帧清单 =====
+08:51:55.218  C→S   63 B  type=0x01 LOGIN_REQ    len=55
+08:51:55.218  C→S   61 B  type=0x01 LOGIN_REQ    len=53
+08:51:55.218  S→C   78 B  type=0x02 LOGIN_RESP   len=70
+08:51:55.218  S→C   85 B  type=0x20 USER_LIST    len=77
+08:51:55.219  S→C   76 B  type=0x02 LOGIN_RESP   len=68
+08:51:55.219  S→C  139 B  type=0x20 USER_LIST    len=131
+08:51:55.219  S→C   61 B  type=0x21 USER_JOIN    len=53
+08:51:57.538  C→S   67 B  type=0x10 CHAT_GROUP   len=59
+08:51:57.538  S→C  113 B  type=0x10 CHAT_GROUP   len=105
+08:51:57.538  S→C  113 B  type=0x10 CHAT_GROUP   len=105
+08:51:58.539  C→S   52 B  type=0x10 CHAT_GROUP   len=44
+08:51:58.539  S→C   96 B  type=0x10 CHAT_GROUP   len=88
+08:51:58.539  S→C   96 B  type=0x10 CHAT_GROUP   len=88
+08:52:00.039  C→S   72 B  type=0x11 CHAT_PRIVATE len=64
+08:52:00.039  S→C  118 B  type=0x11 CHAT_PRIVATE len=110
+08:52:00.039  S→C  118 B  type=0x11 CHAT_PRIVATE len=110
+08:52:00.839  C→S   10 B  type=0x03 LOGOUT       len=2
+08:52:00.839  C→S   10 B  type=0x03 LOGOUT       len=2

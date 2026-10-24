@@ -1,4 +1,4 @@
-﻿# Bluebird
+# Bluebird
 
 同一局域网内的多用户聊天室 —— 计算机网络技术课程设计。
 
@@ -44,13 +44,17 @@ Bluebird/
 ├─ client/
 │   └─ cli.py           命令行客户端（GUI 未开始）
 ├─ tools/
-│   └─ tap.py           应用层抓包代理
+│   ├─ tap.py           应用层抓包代理（按协议拆帧，逐帧记录十六进制）
+│   ├─ capture_d1.py    D1 取证：一条命令起服务端 + tap + 两个客户端
+│   ├─ tap_to_pcap.py   tap 日志 → 可在 Wireshark 里看的 pcap（载荷原样，头部重建）
+│   ├─ verify_d1.py     D1 验收：13 项协议层判据
+│   └─ verify_d1_cli.py D1 验收：两个真实 CLI 客户端互发
 ├─ tests/               协议 23 条 + 路由 6 条 + 服务端 14 条
 └─ docs/
     ├─ protocol.md      应用层协议 v2（唯一事实源）
     ├─ 三阶段实施路线.md
-    ├─ pcap/            抓包截图
-    └─ test/            测试记录
+    ├─ pcap/            抓包日志（v1/v2）与帧结构配图
+    └─ test/            D1 抓包记录、验收报告与证据
 ```
 
 ## 快速开始
@@ -103,6 +107,7 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 ## 文档
 
 - [docs/protocol.md](docs/protocol.md) —— 应用层协议 v2（冻结版）
-- [docs/test/D1.md](docs/test/D1.md) —— D1 抓包记录与 Wireshark 复现步骤（协议 v1 时期）
+- [docs/test/D1.md](docs/test/D1.md) —— D1 抓包记录（协议 v2）与 Wireshark 补图步骤
+- [docs/test/D1-验收报告.md](docs/test/D1-验收报告.md) —— D1 验收结论与证据清单
 - [docs/三阶段实施路线.md](docs/三阶段实施路线.md) —— 三阶段施工顺序与每步判据
 
