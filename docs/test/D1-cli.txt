@@ -1,20 +1,20 @@
 ===== alice 的终端输出 =====
-已进入聊天室：alice（颜色 black）　127.0.0.1:8888
+已进入聊天室：alice（颜色 black）　127.0.0.1:8901
 直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
-08:46:16  [system：在线 1 人] alice(black)
-08:46:16  [system：bob 进入聊天室]
-08:46:18  [alice：大家好，我是 alice]
-08:46:19  [bob：收到 😀]
+09:21:37  [system：在线 1 人] alice(black)
+09:21:37  [system：bob 进入聊天室]
+09:21:40  [alice：大家好，我是 alice]
+09:21:41  [bob：收到 😀]
 [在线 2 人] alice(black)、bob(black)
-08:46:21  [私聊 alice→bob：悄悄话只给你]
+09:21:43  [私聊 alice→bob：悄悄话只给你]
 
 ===== bob 的终端输出 =====
-已进入聊天室：bob（颜色 black）　127.0.0.1:8888
+已进入聊天室：bob（颜色 black）　127.0.0.1:8901
 直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
-08:46:16  [system：在线 2 人] alice(black)、bob(black)
-08:46:18  [alice：大家好，我是 alice]
-08:46:19  [bob：收到 😀]
-08:46:21  [私聊 alice→bob：悄悄话只给你]
+09:21:37  [system：在线 2 人] alice(black)、bob(black)
+09:21:40  [alice：大家好，我是 alice]
+09:21:41  [bob：收到 😀]
+09:21:43  [私聊 alice→bob：悄悄话只给你]
 
 ===== 判据 =====
 [PASS] alice 登录成功

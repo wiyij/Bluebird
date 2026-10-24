@@ -7,7 +7,9 @@
 
 产出：
     docs/pcap/D1-tap-v2.log   两个方向逐帧的十六进制 + JSON 明文
-    docs/test/D1-capture.txt  本次抓包的帧清单摘要
+    docs/test/D1-capture.txt  本次抓包的帧清单摘要（默认会覆盖这份文件，换场景请用 --summary）
+
+注意：D2 起服务端会多发 CHAT_SYSTEM（上下线提示），现在重抓会比 D1 时的 18 帧多。
 """
 
 from __future__ import annotations
@@ -55,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8888, help="服务端端口")
     parser.add_argument("--tap-port", type=int, default=None, help="tap 监听端口，默认服务端端口 +1")
     parser.add_argument("--log", type=Path, default=ROOT / "docs/pcap/D1-tap-v2.log")
+    parser.add_argument("--summary", type=Path, default=ROOT / "docs/test/D1-capture.txt",
+                        help="帧清单摘要写到哪里（换场景记得改，别覆盖 D1 的记录）")
     parser.add_argument("--python", default=sys.executable, help="用哪个解释器起子进程")
     args = parser.parse_args(argv)
 
@@ -137,7 +141,8 @@ def main(argv: list[str] | None = None) -> int:
         "===== 帧清单 =====",
         *frames,
     ]
-    out_path = ROOT / "docs/test/D1-capture.txt"
+    out_path = args.summary if args.summary.is_absolute() else ROOT / args.summary
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(summary) + "\n", encoding="utf-8")
 
     print(f"frames={len(frames)} chat_group={len(groups)} log={log_path.relative_to(ROOT)}")

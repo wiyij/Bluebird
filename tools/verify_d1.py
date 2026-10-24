@@ -40,6 +40,18 @@ async def read_one(reader, timeout=2.0):
     return await asyncio.wait_for(read_frame(reader), timeout)
 
 
+async def until(reader, wanted, timeout=2.0):
+    """读到指定类型为止，跳过中间的其他帧。
+
+    D2 起服务端会多发 CHAT_SYSTEM（上下线提示），按位置读会读到它；
+    验收关心的是「某类帧的内容」，所以跳过无关帧再断言。
+    """
+    while True:
+        msg_type, body = await read_one(reader, timeout)
+        if msg_type == wanted:
+            return msg_type, body
+
+
 async def drain_until_closed(reader, timeout=2.0) -> int:
     """读到 EOF 为止，返回剩余字节数；-1 表示没关。"""
     total = 0
@@ -82,7 +94,7 @@ async def main() -> int:
           frame[:2] == b"\x43\x48" and int.from_bytes(frame[4:8], "big") == len(frame) - 8,
           f"整帧 {len(frame)} B = 8 + {len(frame) - 8}")
 
-    ul = await read_one(r1)
+    ul = await until(r1, MsgType.USER_LIST)
     check("A11 USER_LIST 登录后立即下发",
           ul[0] == MsgType.USER_LIST and ul[1].get("count") == 1,
           f"count={ul[1].get('count')}")
@@ -91,9 +103,9 @@ async def main() -> int:
     r2, w2 = await asyncio.open_connection("127.0.0.1", port)
     w2.write(encode_frame(MsgType.LOGIN_REQ, {"username": "bob", "client_ver": "2.0"}))
     await w2.drain()
-    await read_one(r2)                             # LOGIN_RESP
-    await read_one(r2)                             # USER_LIST
-    join = await read_one(r1)                      # alice 收到 USER_JOIN
+    await until(r2, MsgType.LOGIN_RESP)
+    await until(r2, MsgType.USER_LIST)
+    join = await until(r1, MsgType.USER_JOIN)     # alice 收到 USER_JOIN
     check("A11 上下线广播",
           join[0] == MsgType.USER_JOIN and join[1].get("nickname") == "bob",
           f"{join[1].get('nickname')} 进入")
@@ -101,8 +113,8 @@ async def main() -> int:
     w1.write(encode_frame(MsgType.CHAT_GROUP,
                           {"msg_id": "alice-000001", "text": "大家好，我是 alice"}))
     await w1.drain()
-    ta, ba = await read_one(r1)
-    tb, bb = await read_one(r2)
+    ta, ba = await until(r1, MsgType.CHAT_GROUP)
+    tb, bb = await until(r2, MsgType.CHAT_GROUP)
     check("A05/A12 发送者收到自己的帧（回显），对方也收到同一帧",
           ta == tb == MsgType.CHAT_GROUP and ba == bb
           and ba["from"] == "alice" and ba["seq"] == bb["seq"],
@@ -114,14 +126,14 @@ async def main() -> int:
     # ---------- A08：未知 type → 2004，连接仍可用 ----------
     w1.write(encode_frame(0x7F, {"whatever": 1}))
     await w1.drain()
-    t, err = await read_one(r1)
+    t, err = await until(r1, MsgType.ERROR)
     check("A08 未知 type 回 ERROR(2004)",
           t == MsgType.ERROR and err.get("code") == int(ErrorCode.UNKNOWN_TYPE),
           f"code={err.get('code')}")
 
     w1.write(encode_frame(MsgType.PING))
     await w1.drain()
-    t, pong = await read_one(r1)
+    t, pong = await until(r1, MsgType.PONG)
     check("A08 未知 type 之后连接保持（PING→PONG）", t == MsgType.PONG,
           f"PONG server_time={pong.get('server_time')}")
 
