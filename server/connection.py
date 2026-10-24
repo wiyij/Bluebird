@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from shared.errors import ErrorCode, message_for
 from shared.protocol import DEFAULT_COLOR, MsgType, encode_frame
 
+from server.ratelimit import SlidingWindow
+
 
 @dataclass(eq=False)          # eq=False → 保留对象身份哈希，才能放进 set 当在线表
 class Client:
@@ -27,6 +29,7 @@ class Client:
     since: int = field(default_factory=lambda: int(time.time()))
     state: str = "connected"          # connected / authed / closing / closed
     leave_reason: str = "disconnect"  # logout / kicked / disconnect
+    limiter: SlidingWindow = field(default_factory=SlidingWindow)  # A16：10 条/秒
 
     @property
     def authed(self) -> bool:

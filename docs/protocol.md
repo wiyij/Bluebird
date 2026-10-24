@@ -133,6 +133,9 @@
 
 **CHAT_SYSTEM**：`{text, level, ts, reason?}`。`level` 取 `info` / `warn`。
 
+> **本期实现**：上下线除了 `USER_JOIN` / `USER_LEAVE`（供名单增删）之外，服务端还会广播一条
+> `CHAT_SYSTEM` 作为界面提示；客户端不再自己拼「某某进入聊天室」，只负责渲染这一帧。
+
 ### 4.5 在线状态（0x20—0x22）
 
 **USER_LIST**：`{users:[{nickname, color, since}], count}`；登录成功后**立即**下发全量。

@@ -1,0 +1,40 @@
+===== alice 的终端输出 =====
+已进入聊天室：alice（颜色 black）　127.0.0.1:8899
+直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
+09:16:22  [system：在线 1 人] alice(black)
+09:16:24  [system：bob 进入聊天室]
+09:16:25  [system：carol 进入聊天室]
+09:16:27  [alice：三端都在吗]
+09:16:28  [bob：在]
+09:16:29  [私聊 alice→bob：这条只给 bob]
+09:16:30  [system：carol 退出了]
+
+===== bob 的终端输出 =====
+已进入聊天室：bob（颜色 black）　127.0.0.1:8899
+直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
+09:16:24  [system：在线 2 人] alice(black)、bob(black)
+09:16:25  [system：carol 进入聊天室]
+09:16:27  [alice：三端都在吗]
+09:16:28  [bob：在]
+09:16:29  [私聊 alice→bob：这条只给 bob]
+09:16:30  [system：carol 退出了]
+09:16:32  [system：alice 退出了]
+
+===== carol 的终端输出 =====
+已进入聊天室：carol（颜色 black）　127.0.0.1:8899
+直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
+09:16:25  [system：在线 3 人] alice(black)、bob(black)、carol(black)
+09:16:27  [alice：三端都在吗]
+09:16:28  [bob：在]
+
+===== 判据 =====
+[PASS] 三端都登录成功
+[PASS] carol 的名单里有 3 人
+[PASS] alice 的群聊三端都收到
+[PASS] 顺序一致：bob 那条在 alice 那条之后
+[PASS] 私聊只到 bob（alice 回显 + bob 收到）
+[PASS] carol 完全看不到私聊
+[PASS] alice 收到 carol 退出的系统提示
+[PASS] bob 收到 carol 退出的系统提示
+[PASS] 退出无异常栈
+合计 9 项：PASS 9，FAIL 0

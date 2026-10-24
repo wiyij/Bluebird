@@ -298,3 +298,147 @@ async def test_client_count_after_logout(server: ChatServer) -> None:
     assert server.client_count == 0
     writer.close()
     await writer.wait_closed()
+
+
+# ---------------------------------------------------------------- A14 系统消息
+
+
+async def test_join_sends_chat_system_to_others(server: ChatServer) -> None:
+    reader_a, writer_a = await connect(server)
+    await login(reader_a, writer_a, "alice")
+
+    reader_b, writer_b = await connect(server)
+    await login(reader_b, writer_b, "bob")
+    try:
+        system = await read_until(reader_a, MsgType.CHAT_SYSTEM)
+        assert system["text"] == "bob 进入聊天室"
+        assert system["level"] == "info"
+        assert isinstance(system["ts"], int)
+
+        # 自己不该收到「自己进入聊天室」
+        bob_types = []
+        writer_b.write(encode_frame(MsgType.PING))
+        await writer_b.drain()
+        while True:
+            msg_type, _ = await asyncio.wait_for(read_frame(reader_b), 2)
+            if msg_type == MsgType.PONG:
+                break
+            bob_types.append(msg_type)
+        assert MsgType.CHAT_SYSTEM not in bob_types
+    finally:
+        for w in (writer_a, writer_b):
+            w.close()
+            await w.wait_closed()
+
+
+async def test_leave_sends_chat_system(server: ChatServer) -> None:
+    reader_a, writer_a = await connect(server)
+    reader_b, writer_b = await connect(server)
+    await login(reader_a, writer_a, "alice")
+    await login(reader_b, writer_b, "bob")
+    try:
+        writer_b.write(encode_frame(MsgType.LOGOUT))
+        await writer_b.drain()
+
+        left = await read_until(reader_a, MsgType.USER_LEAVE)
+        assert left["nickname"] == "bob" and left["reason"] == "logout"
+
+        system = await read_until(reader_a, MsgType.CHAT_SYSTEM)
+        assert system["text"] == "bob 退出了"
+    finally:
+        writer_a.close()
+        await writer_a.wait_closed()
+
+
+# ---------------------------------------------------------------- A10 登录硬化
+
+
+@pytest.fixture
+async def impatient_server():
+    instance = ChatServer(
+        Config(host="127.0.0.1", port=0, log_level="WARNING"), login_timeout=0.2
+    )
+    await instance.start()
+    yield instance
+    await instance.close()
+
+
+async def test_login_timeout_closes_silently(impatient_server: ChatServer) -> None:
+    reader, writer = await asyncio.open_connection("127.0.0.1", impatient_server.port)
+    try:
+        assert await asyncio.wait_for(reader.read(16), timeout=2) == b""
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+async def test_ping_before_login_gets_1006_and_disconnects(server: ChatServer) -> None:
+    reader, writer = await connect(server)
+    try:
+        writer.write(encode_frame(MsgType.PING))
+        await writer.drain()
+
+        body = await read_until(reader, MsgType.ERROR)
+        assert body["code"] == int(ErrorCode.NOT_LOGGED_IN)
+        assert await asyncio.wait_for(reader.read(16), timeout=2) == b""
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+# ---------------------------------------------------------------- A16 限流
+
+
+async def test_long_message_gets_2001_and_is_not_broadcast(server: ChatServer) -> None:
+    reader_a, writer_a = await connect(server)
+    await login(reader_a, writer_a, "alice")
+    try:
+        writer_a.write(encode_frame(MsgType.CHAT_GROUP, {
+            "msg_id": "alice-000009", "text": "长" * 700,      # 2100 字节 > 2000
+        }))
+        await writer_a.drain()
+
+        body = await read_until(reader_a, MsgType.ERROR)
+        assert body["code"] == int(ErrorCode.MESSAGE_TOO_LONG)
+
+        writer_a.write(encode_frame(MsgType.PING))
+        await writer_a.drain()
+        assert (await asyncio.wait_for(read_frame(reader_a), timeout=2))[0] == MsgType.PONG
+    finally:
+        writer_a.close()
+        await writer_a.wait_closed()
+
+
+async def test_rate_limit_returns_2002_and_stops_fanout(server: ChatServer) -> None:
+    reader_a, writer_a = await connect(server)
+    reader_b, writer_b = await connect(server)
+    await login(reader_a, writer_a, "alice")
+    await login(reader_b, writer_b, "bob")
+    try:
+        await read_until(reader_b, MsgType.USER_LIST)     # bob 自己登录时那份名单
+        await read_until(reader_a, MsgType.CHAT_SYSTEM)   # bob 进入聊天室
+
+        for index in range(12):
+            writer_b.write(encode_frame(MsgType.CHAT_GROUP, {
+                "msg_id": f"bob-{index:06d}", "text": f"第 {index} 条",
+            }))
+        await writer_b.drain()
+
+        received = [await asyncio.wait_for(read_frame(reader_b), 3) for _ in range(12)]
+        chats = [body for msg_type, body in received if msg_type == MsgType.CHAT_GROUP]
+        errors = [body for msg_type, body in received if msg_type == MsgType.ERROR]
+
+        assert len(chats) == 10
+        assert len(errors) == 2
+        assert all(body["code"] == int(ErrorCode.RATE_LIMITED) for body in errors)
+        assert [body["seq"] for body in chats] == list(range(1, 11))
+
+        for _ in range(10):
+            msg_type, _ = await asyncio.wait_for(read_frame(reader_a), 3)
+            assert msg_type == MsgType.CHAT_GROUP
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(read_frame(reader_a), 0.3)
+    finally:
+        for w in (writer_a, writer_b):
+            w.close()
+            await w.wait_closed()

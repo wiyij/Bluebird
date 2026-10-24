@@ -1,0 +1,22 @@
+[PASS] A10 登录成功（code=0，昵称回填）  code=0
+[PASS] A11 有人上线：除自己外各收 1 条 USER_JOIN  USER_JOIN=bob
+[PASS] A14 上线同时发 1 条 CHAT_SYSTEM  text=bob 进入聊天室 level=info
+[PASS] A11 第 3 人登录立刻看到前 2 人  count=3 名单=['alice', 'bob', 'carol']
+[PASS] A11 第三个人上线，alice 与 bob 各收 1 条 USER_JOIN  alice/bob 各 1 条
+[PASS] A14 系统消息每端只来 1 条（不重复）  carol 进入聊天室
+[PASS] A12 三人同时在线：一方发言，三端各收 1 条且 seq 相同  seq=1，from=alice
+[PASS] A12 发送者那份是回显（含自己）  
+[PASS] A13 私聊投递给对方，发送者收到回显  seq=2
+[PASS] A13 私聊隔离：carol 全程没收到这条私聊  carol 只收到 []
+[PASS] A13 私聊对象离线回 3001，不暂存  code=3001 message=dave 不在线
+[PASS] A16 1 秒内 12 条：只转发前 10 条  转发 10 条
+[PASS] A16 其余回 2002  错误 2 个
+[PASS] A16 超限的消息不扇出：其他两端各只收 10 条  alice=10 carol=10
+[PASS] A16 被丢弃的消息没有占 seq（转发的 10 条 seq 严格 +1）  seq=[3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+[PASS] A11 退出：其他人收 1 条 USER_LEAVE（reason=logout）  reason=logout
+[PASS] A14 退出同时发 1 条 CHAT_SYSTEM  text=carol 退出了
+[PASS] A10 登录时限：0.3 s 不发 LOGIN_REQ，服务端直接关闭（不分帧回包）  读到 0 字节
+[PASS] A10 未登录就发 PING → 1006 并断开  code=1006
+[PASS] A10 1006 之后连接被关闭  读到 0 字节
+
+合计 20 项：PASS 20，FAIL 0

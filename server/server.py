@@ -33,12 +33,24 @@ log = logging.getLogger("server")
 #: 昵称：1—16 字符，中英文、数字、下划线
 NICKNAME_RE = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fa5]{1,16}$")
 
+#: 登录时限（协议第 8 章）：连上 10 s 内不发 LOGIN_REQ 就关掉，防占位连接
+LOGIN_TIMEOUT = 10.0
+
+#: 离场原因 → 系统消息里的说法
+LEAVE_TEXT = {
+    "logout": "退出了",
+    "disconnect": "离线了",
+    "timeout": "超时下线",
+    "kicked": "被移出",
+}
+
 
 class ChatServer:
     """在线昵称表 + 消息路由器。"""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, *, login_timeout: float = LOGIN_TIMEOUT) -> None:
         self.config = config
+        self.login_timeout = login_timeout
         self._server: asyncio.AbstractServer | None = None
         self._clients: dict[str, Client] = {}      # nickname -> Client
         self._seq = 0
@@ -104,6 +116,7 @@ class ChatServer:
             "count": len(self._clients),
         })
         await self._broadcast(MsgType.USER_JOIN, client.profile(), exclude=client)
+        await self._system(f"{nickname} 进入聊天室", exclude=client)
         log.info("login: %s（在线 %d 人）", nickname, len(self._clients))
 
     async def _on_logout(self, client: Client, body: dict) -> None:
@@ -112,6 +125,10 @@ class ChatServer:
 
     async def _on_group(self, client: Client, body: dict) -> None:
         if not await self._require_auth(client):
+            return
+        if not client.limiter.allow():
+            log.info("rate limited: %s", client.label)
+            await client.send_error(ErrorCode.RATE_LIMITED)
             return
         text = body.get("text")
         if not isinstance(text, str) or not text.strip():
@@ -133,6 +150,10 @@ class ChatServer:
 
     async def _on_private(self, client: Client, body: dict) -> None:
         if not await self._require_auth(client):
+            return
+        if not client.limiter.allow():
+            log.info("rate limited: %s", client.label)
+            await client.send_error(ErrorCode.RATE_LIMITED)
             return
         to = str(body.get("to", "")).strip()
         text = body.get("text")
@@ -202,6 +223,15 @@ class ChatServer:
             except (ConnectionError, OSError):
                 log.warning("write failed, dropping %s", client.label)
 
+    async def _system(self, text: str, level: str = "info",
+                      exclude: Client | None = None) -> None:
+        """A14：所有系统提示只从这里发，统一成 CHAT_SYSTEM 一帧。"""
+        await self._broadcast(MsgType.CHAT_SYSTEM, {
+            "text": text,
+            "level": level,
+            "ts": int(time.time()),
+        }, exclude=exclude)
+
     # ---------------------------------------------------------------- 生命周期
 
     async def start(self) -> asyncio.AbstractServer:
@@ -243,14 +273,28 @@ class ChatServer:
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         client = Client(reader=reader, writer=writer, peer=writer.get_extra_info("peername"))
         log.info("client connected: %s", client.label)
+        # max_frame 是整帧上限，报文体上限要减掉 8 字节首部
+        body_limit = self.config.max_frame - HEADER_SIZE
         try:
-            while True:
-                # max_frame 是整帧上限，报文体上限要减掉 8 字节首部
-                msg_type, body = await read_frame(reader, self.config.max_frame - HEADER_SIZE)
+            # ---- 登录阶段：10 s 内必须发来 LOGIN_REQ（协议 §1、§6、§8）----
+            try:
+                msg_type, body = await asyncio.wait_for(
+                    read_frame(reader, body_limit), timeout=self.login_timeout
+                )
+            except asyncio.TimeoutError:
+                log.info("login timeout: %s", client.label)
+                return                      # finally 里关连接
+            if msg_type != MsgType.LOGIN_REQ:
+                # 未登录就发业务帧/心跳 → 1006 并断开
+                log.warning("frame 0x%02X before login from %s", msg_type, client.label)
+                await client.send_error(ErrorCode.NOT_LOGGED_IN)
+                return
+            await self.router.dispatch(client, msg_type, body)
+
+            while client.state != "closing":
+                msg_type, body = await read_frame(reader, body_limit)
                 log.debug("recv type=0x%02X body=%s", msg_type, body)
                 await self.router.dispatch(client, msg_type, body)
-                if client.state == "closing":
-                    break
 
         except asyncio.IncompleteReadError:
             log.info("client closed: %s", client.label)
@@ -279,6 +323,8 @@ class ChatServer:
                 "nickname": nickname,
                 "reason": client.leave_reason,
             })
+            await self._system(f"{nickname} {LEAVE_TEXT.get(client.leave_reason, '离线了')}",
+                               level="info" if client.leave_reason == "logout" else "warn")
         await client.close()
 
 

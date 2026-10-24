@@ -172,12 +172,10 @@ class ChatClient:
             names = "、".join(f"{n}({u.get('color')})" for n, u in self.online.items())
             print(f"{ts}  [system：在线 {body.get('count', len(self.online))} 人] {names}")
         elif msg_type == MsgType.USER_JOIN:
+            # A14：名单只负责「谁在线」，界面提示统一由 CHAT_SYSTEM 来
             self.online[body["nickname"]] = body
-            print(f"{ts}  [system：{body['nickname']} 进入聊天室]")
         elif msg_type == MsgType.USER_LEAVE:
             self.online.pop(body.get("nickname", ""), None)
-            reason = {"logout": "退出了", "disconnect": "离线了"}.get(body.get("reason"), "离线了")
-            print(f"{ts}  [system：{body.get('nickname')} {reason}]")
         elif msg_type == MsgType.USER_COLOR:
             if body.get("nickname") in self.online:
                 self.online[body["nickname"]]["color"] = body.get("color")

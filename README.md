@@ -9,12 +9,13 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | 模块 | 状态 |
 | --- | --- |
 | 应用层协议 v2（15 种类型、10 个错误码） | ✅ 已冻结（tag `proto-v2`） |
-| 帧编解码 + 43 条单元/联调测试 | ✅ |
+| 帧编解码 + 53 条单元/联调测试 | ✅ |
 | 服务端：昵称登录、群聊、一对一私聊、颜色广播、上下线通知 | ✅ |
+| 服务端：登录时限 10 s、未登录 1006、滑动窗口限流 2002、系统消息 `CHAT_SYSTEM` | ✅ |
 | 命令行客户端（`/w` 私聊、`/color` 改色、`/who`） | ✅ |
 | 心跳与超时踢除 | 待做 |
 | GUI：登录窗 + 四区主窗 + 私聊小窗 | 待做 |
-| 验收用例 T01—T13（见规格文档） | 待做 |
+| 验收用例 T01—T13（见规格文档） | T01—T08 已跑（`docs/test/D2.md`），T09—T13 待做 |
 
 ## 环境
 
@@ -81,18 +82,21 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 
 | 收到 | 动作 |
 | --- | --- |
-| `LOGIN_REQ` | 校验昵称格式与重名 → 回 `LOGIN_RESP` → 下发 `USER_LIST` → 广播 `USER_JOIN` |
-| `CHAT_GROUP` | 补 `seq/from/server_ts` → 广播给所有人（含发送者） |
+| `LOGIN_REQ` | 校验昵称格式与重名 → 回 `LOGIN_RESP` → 下发 `USER_LIST` → 广播 `USER_JOIN` 与一条 `CHAT_SYSTEM` |
+| 登录前发别的帧 / 10 s 不登录 | 分别回 `1006` 后断开、静默断开 |
+| `CHAT_GROUP` | 限流通过 → 补 `seq/from/server_ts` → 广播给所有人（含发送者） |
 | `CHAT_PRIVATE` | 按 `to` 单投；对象离线回 `3001`，不暂存 |
 | `SET_COLOR` | 校验四色 → 广播 `USER_COLOR` |
+| 超过 10 条/秒 | 回 `2002`，这一条不扇出（滑动窗口，`server/ratelimit.py`） |
 | 未知类型 | 回 `ERROR(2004)`，连接保持 |
 | 坏 magic / 版本不符 / 超长帧 | 前两者分别静默断开与回 `1003`，超长静默断开 |
 
 ## 测试
 
 ```powershell
-.venv\Scripts\python.exe -m pytest        # 43 passed
-.venv\Scripts\python.exe -m pytest tests/test_server.py -v
+.venv\Scripts\python.exe -m pytest        # 53 passed
+.venv\Scripts\python.exe tools\verify_d2.py       # 三端协议层 20 项
+.venv\Scripts\python.exe tools\verify_d2_cli.py   # 三端真实 CLI（需先起服务端）
 ```
 
 ## 协议速览
@@ -109,5 +113,6 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 - [docs/protocol.md](docs/protocol.md) —— 应用层协议 v2（冻结版）
 - [docs/test/D1.md](docs/test/D1.md) —— D1 抓包记录（协议 v2）与 Wireshark 补图步骤
 - [docs/test/D1-验收报告.md](docs/test/D1-验收报告.md) —— D1 验收结论与证据清单
+- [docs/test/D2.md](docs/test/D2.md) —— D2 三端联调、TC-01—TC-08 与限流/登录硬化记录
 - [docs/三阶段实施路线.md](docs/三阶段实施路线.md) —— 三阶段施工顺序与每步判据
 
