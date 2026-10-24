@@ -1,4 +1,4 @@
-server listening on 127.0.0.1:64784（0 端口由系统分配）
+server listening on 127.0.0.1:58691（0 端口由系统分配）
 
 [PASS] A03 半包：先 4 字节、0.2 s 后发余下，仍还原成一帧  收到 LOGIN_RESP code=0
     首部实际字节：43 48 02 01 00 00 00 37   magic=0x4348 ver=2
@@ -8,7 +8,7 @@ server listening on 127.0.0.1:64784（0 端口由系统分配）
 [PASS] A05/A12 发送者收到自己的帧（回显），对方也收到同一帧  seq=1，两端正文一致=True
     群聊帧首部：43 48 02 10 00 00 00 0C（ver=2）
 [PASS] A08 未知 type 回 ERROR(2004)  code=2004
-[PASS] A08 未知 type 之后连接保持（PING→PONG）  PONG server_time=1792805037
+[PASS] A08 未知 type 之后连接保持（PING→PONG）  PONG server_time=1792811004
 [PASS] 坏 magic 不回包、直接关闭  关闭前收到 0 字节（-1 表示未关闭）
 [PASS] 版本不符回 ERROR(1003)  code=1003
 [PASS] 版本不符后关闭连接  关闭前剩余 0 字节

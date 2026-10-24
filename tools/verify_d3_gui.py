@@ -109,11 +109,11 @@ def pump(root: tk.Tk, seconds: float = 2.0, until=None) -> bool:
 class Peer:
     """另一个「用户」：无界面，只有 NetClient，用来当对手戏。"""
 
-    def __init__(self, port: int, name: str) -> None:
+    def __init__(self, port: int, name: str, host: str = "127.0.0.1") -> None:
         self.name = name
         self.events: queue.Queue = queue.Queue()
         self.seen: list[tuple[str, dict]] = []
-        self.net = NetClient("127.0.0.1", port, name, on_event=self.events.put)
+        self.net = NetClient(host, port, name, on_event=self.events.put)
 
     def start(self) -> None:
         self.net.start()
@@ -153,6 +153,8 @@ def main() -> int:
     global SHOTS
     parser = argparse.ArgumentParser(prog="verify_d3_gui")
     parser.add_argument("--port", type=int, default=0, help="0 = 向系统要一个空闲端口")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="客户端连哪个地址；换网复验时填本机局域网 IP")
     parser.add_argument("--shots", action="store_true", help="顺便把截图存到 docs/gui/")
     args = parser.parse_args()
     SHOTS = args.shots
@@ -169,7 +171,7 @@ def main() -> int:
         return 2
 
     root = tk.Tk()
-    app = BluebirdApp(root, host="127.0.0.1", port=args.port)
+    app = BluebirdApp(root, host=args.host, port=args.port)
     seen: list[tuple[str, float, str]] = []
     _original_handle = app._handle
 
@@ -180,6 +182,8 @@ def main() -> int:
 
     app._handle = _spy                      # 记录事件流，失败时好定位
     pump(root, 0.3)
+    log(f"服务端：{args.host}:{args.port}　（--host 决定走回环还是真实网卡）")
+    log()
     log("===== 登录窗 =====")
     capture(root, "D3-login.png")
     check("启动即出现登录窗（不是先连再问）", app.login is not None and app.chat is None)
@@ -191,7 +195,7 @@ def main() -> int:
     if app.chat is None:
         log("登录没成功，后面跳过")
         return finish(root, app, server)
-    check("顶栏显示服务器地址", app.chat.server_text == f"127.0.0.1:{args.port}",
+    check("顶栏显示服务器地址", app.chat.server_text == f"{args.host}:{args.port}",
           app.chat.server_text)
     check("在线人数从 0 变 1", app.chat.count_label.cget("text") == "在线 1 人",
           app.chat.count_label.cget("text"))
@@ -202,7 +206,7 @@ def main() -> int:
           app.chat.counter.cget("text"))
 
     # ---------------- 第二个用户上线 ----------------
-    bob = Peer(args.port, "bob")
+    bob = Peer(args.port, "bob", args.host)
     bob.start()
     login = bob.wait("login_ok", seconds=5)
     check("第二个用户自己登录成功（后面几条的前置）", login is not None, str(login))

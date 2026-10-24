@@ -20,7 +20,7 @@
 
 客户端最后几行输出：
     直接输入 = 群聊；/w 昵称 内容 = 私聊；/color 颜色；/who；/quit
-    10:48:49  [system：在线 1 人] alice(black)
+    11:03:29  [system：在线 1 人] alice(black)
     [连接已断开] 网络中断
 
 合计 13 项：PASS 13，FAIL 0

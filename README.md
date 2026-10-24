@@ -17,7 +17,7 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | 客户端网络层（独立线程 + 事件队列，CLI 与 GUI 共用） | ✅ |
 | GUI：登录窗 + 四区主窗 + 私聊小窗 + 设置面板 + 断线横幅 | ✅ |
 | 命令行客户端（`/w` 私聊、`/color` 改色、`/who`、心跳保活） | ✅ |
-| 验收用例 T01—T13（《结果示例》第 5 章） | T01—T12 已在协议／CLI／GUI 层验过（见 `docs/test/D3.md`）；T13「换网段」要两台机器，留 D4 现场做 |
+| 验收用例 T01—T13（《结果示例》第 5 章） | T01—T12 已在协议／CLI／GUI 层验过（见 `docs/test/D3.md`）；T13「换网段」的**换 IP 部分**已在手机热点（172.20.10.5）上验完，只剩「第二台机器」现场走一遍 |
 
 ## 环境
 
@@ -64,7 +64,9 @@ Bluebird/
 │   ├─ verify_d2.py     D2 验收：20 项协议层判据（登录／名单／群聊／私聊／限流）
 │   ├─ verify_d2_cli.py D2 验收：三端真实 CLI
 │   ├─ verify_robust.py 健壮性验收：心跳判死、慢客户端、坏帧容错、断线退出
-│   └─ verify_d3_gui.py D3 验收：开真窗口走查 33 项，可 --shots 出截图
+│   ├─ verify_d3_gui.py D3 验收：开真窗口走查 33 项，可 --shots 出截图、--host 换地址
+│   ├─ verify_d3_net.py D3 验收：T13 换网复验（走真实网卡，不经过 127.0.0.1）
+│   └─ build_d3_doc.py  生成桌面工作汇总 docx
 ├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 28 + 客户端 16 + 界面 6 = 89 条
 └─ docs/
     ├─ protocol.md      应用层协议 v2（唯一事实源）
@@ -128,6 +130,8 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 .venv\Scripts\python.exe -m pytest                 # 89 passed
 .venv\Scripts\python.exe tools\verify_d3_gui.py    # D3 界面走查 33 项（自己起服务端，约 20 秒）
 .venv\Scripts\python.exe tools\verify_d3_gui.py --shots   # 顺便把截图写到 docs/gui/
+.venv\Scripts\python.exe tools\verify_d3_gui.py --host 172.20.10.5   # 换网复验：走真实网卡
+.venv\Scripts\python.exe tools\verify_d3_net.py    # T13 换网复验 11 项（自动取本机局域网 IP）
 .venv\Scripts\python.exe tools\verify_robust.py    # 13 项：心跳判死、慢客户端、坏帧容错、断线退出
 .venv\Scripts\python.exe tools\verify_robust.py --slow   # 再加 3 项：真实 15/45 s 参数下空闲 50 s（约 1 分钟）
 .venv\Scripts\python.exe tools\verify_d2.py        # 三端协议层 20 项
@@ -153,8 +157,9 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 - [docs/test/D2-审查.md](docs/test/D2-审查.md) —— D2 三轮审查记录（第三轮修掉 5 处会在 D3 引爆的隐患）
 - [docs/test/D2-robust-evidence.txt](docs/test/D2-robust-evidence.txt) —— 健壮性判据的实际输出
 - [docs/test/D2-capture.txt](docs/test/D2-capture.txt) —— 私聊隔离的字节级证据（carol 的流里 0 条 0x11）
-- [docs/test/D3.md](docs/test/D3.md) —— D3 界面与健壮性：四区布局、三个决定、四个坑
+- [docs/test/D3.md](docs/test/D3.md) —— D3 界面与健壮性：四区布局、三个决定、四个坑、换网复验
 - [docs/test/D3-gui-evidence.txt](docs/test/D3-gui-evidence.txt) —— 界面走查 33 项的实际输出
+- [docs/test/D3-net-evidence.txt](docs/test/D3-net-evidence.txt) —— T13 换网复验 11 项（真实网卡、非回环）
 - [docs/gui/](docs/gui) —— 登录窗 / 主窗 / 私聊窗 / 设置 / 断线 五张截图
 - [docs/三阶段实施路线.md](docs/三阶段实施路线.md) —— 三阶段施工顺序与每步判据
 
