@@ -23,7 +23,6 @@ import traceback
 from client import ui
 from client.chatui import ChatFrame
 from client.net import NetClient, reason_text
-from client.session import save_last_host
 from shared.config import DEFAULT_MAX_FRAME, Config, build_parser
 from shared.console import setup_console
 from shared.protocol import COLORS, DEFAULT_COLOR
@@ -73,7 +72,7 @@ class LoginFrame(tk.Frame):
 
         tk.Label(self, text="Bluebird 局域网聊天室", font=ui.font(ui.SIZE_TITLE, "bold"),
                  bg=ui.BG, fg=ui.COLOR_HEX["black"], anchor="w").pack(pady=(24, 2), **pad)
-        tk.Label(self, text="输入昵称进入聊天室；连别人的房间就把「服务器」改成对方 IP。",
+        tk.Label(self, text="输入昵称进入同一个聊天室；颜色可以在设置里改。",
                  font=ui.font(ui.SIZE_SMALL), fg=ui.MUTED, bg=ui.BG,
                  anchor="w").pack(**pad)
 
@@ -258,7 +257,6 @@ class BluebirdApp:
         if kind == "login_ok":
             self.nickname = payload.get("nickname", self.nickname)
             self.color = payload.get("color", self.color)
-            save_last_host(self.host, self.port)   # 下次双击默认还连这台
             if self.chat is None:
                 self._show_chat(f"{self.host}:{self.port}")
             return
