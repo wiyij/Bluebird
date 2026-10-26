@@ -282,6 +282,10 @@ def main() -> int:
           str(color_event))
     pump(root, 1, until=lambda: app.chat.color_of("alice") == "green")
     check("T09 本地列表跟着变色", app.chat.color_of("alice") == "green")
+    pump(root, 1.5, until=lambda: "颜色" in app.chat.message_text())
+    color_lines = [line for line in app.chat.message_text().splitlines() if "颜色" in line]
+    check("T09 改一次颜色只出现一条提示（本地提示 + 服务端广播去重）",
+          len(color_lines) == 1, f"{color_lines}")
     app.chat.settings.destroy()
 
     bob.net.set_color("blue")

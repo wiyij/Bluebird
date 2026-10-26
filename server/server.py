@@ -63,10 +63,13 @@ class ChatServer:
         self.login_timeout = login_timeout
         self.idle_timeout = idle_timeout
         self.sweep_interval = sweep_interval
-        #: >0 时：最后一个客户端走了以后再等这么久，服务端自己退出（桌面快捷方式用）
+        #: >0 时：没人连着的时候等这么久，服务端自己退出（桌面快捷方式用）
         self.exit_when_idle = exit_when_idle if exit_when_idle > 0 else config.idle_exit
         self._empty_since: float | None = None
-        self._had_client = False
+        #: 当前连着的 TCP 连接数（**含刚连上、还没登录完的**）。空房计时看这个，
+        #: 不看 `_clients`：从「连上」到「登录成功」之间还有一次握手，那段时间
+        #: 用户正在输昵称，不该被当成「没人」。
+        self._live = 0
         self._server: asyncio.AbstractServer | None = None
         self._sweeper: asyncio.Task | None = None
         self._clients: dict[str, Client] = {}      # nickname -> Client
@@ -124,8 +127,7 @@ class ChatServer:
         client.since = int(time.time())
         client.state = "authed"
         client.touch()                         # 登录这一帧也算「活着」
-        self._had_client = True                # 有过客人之后才谈「空房超时」
-        self._empty_since = None
+        self._empty_since = None               # 有人进来，空房计时清零
         self._clients[nickname] = client
 
         await client.send(MsgType.LOGIN_RESP, {
@@ -282,9 +284,14 @@ class ChatServer:
     async def _sweep_loop(self) -> None:
         """A17：每 5 s 扫一次，45 s 没收到任何帧就判死并广播下线（协议 §4.6）。
 
-        顺带管「空房自动收工」：桌面快捷方式起的服务端带 ``--idle-exit``，
-        最后一个客户端走了以后再等一会儿就自己退出，免得关掉窗口后留下一个
-        看不见的后台进程（下次双击还会连到那个跑着旧代码的服务端）。
+        顺带管「没人连着就收工」：桌面快捷方式起的服务端带 ``--idle-exit``，
+        一条连接都没有时等一会儿就自己退出，免得关掉窗口后留下一个看不见的后台
+        进程（下次双击还会连到那个跑着旧代码的服务端）。
+
+        计时的依据是**连接数**而不是在线人数：点「进入聊天室」之后、登录成功之前
+        已经占了一条连接，用户慢慢输昵称时不该被判成「没人」；反过来，开了登录窗
+        却从没点进入就关掉，一条连接都没有，计时从服务端启动那一刻就在走，
+        2 分钟后自然退出——这正是复验报告里 P2 指的那个坑。
         """
         while True:
             await asyncio.sleep(self.sweep_interval)
@@ -294,14 +301,14 @@ class ChatServer:
                 client.leave_note = "超时下线"          # 只有系统提示用这个说法
                 client.abort()                          # 读循环醒来 → _forget → 广播下线
 
-            if self.exit_when_idle <= 0 or not self._had_client:
-                continue                                # 还没人来过就永远不退出
-            if self._clients:
+            if self.exit_when_idle <= 0:
+                continue                                # 没开这个开关就永远不退出
+            if self._live:
                 self._empty_since = None
                 continue
             if self._empty_since is None:
                 self._empty_since = time.monotonic()
-                log.info("房间空了，%.0f s 后自动退出", self.exit_when_idle)
+                log.info("没人连着，%.0f s 后自动退出", self.exit_when_idle)
             elif time.monotonic() - self._empty_since >= self.exit_when_idle:
                 log.info("空闲超时，服务端退出")
                 if self._server is not None:
@@ -323,6 +330,11 @@ class ChatServer:
     def serving(self) -> bool:
         """还在接连接吗（测试「空房自动退出」用）。"""
         return self._server is not None and self._server.is_serving()
+
+    @property
+    def live_connections(self) -> int:
+        """当前连着的 TCP 连接数（含未登录的）。"""
+        return self._live
 
     async def close(self) -> None:
         if self._sweeper is not None:
@@ -354,6 +366,7 @@ class ChatServer:
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         client = Client(reader=reader, writer=writer, peer=writer.get_extra_info("peername"))
         log.info("client connected: %s", client.label)
+        self._live += 1                        # 空房计时看这个：连上就算「有人」
         # max_frame 是整帧上限，报文体上限要减掉 8 字节首部
         body_limit = self.config.max_frame - HEADER_SIZE
         tolerated_bad_frame = False
@@ -405,6 +418,7 @@ class ChatServer:
         except asyncio.CancelledError:
             raise
         finally:
+            self._live -= 1                    # 这条连接真的走完了，空房计时可以开始
             await self._forget(client)
             log.info("connection closed: %s（在线 %d 人）", client.label, len(self._clients))
 

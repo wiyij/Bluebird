@@ -9,7 +9,7 @@ C/S 架构 · TCP 长连接 · 自定义应用层协议（8 字节帧头 + UTF-8
 | 模块 | 状态 |
 | --- | --- |
 | 应用层协议 v2（15 种类型、10 个错误码） | ✅ 已冻结（tag `proto-v2`） |
-| 帧编解码 + 92 条单元/联调测试 | ✅ |
+| 帧编解码 + 93 条单元/联调测试 | ✅ |
 | 服务端：昵称登录、群聊、一对一私聊、颜色广播、上下线通知 | ✅ |
 | 服务端：登录时限 10 s、未登录 1006、滑动窗口限流 2002、系统消息 `CHAT_SYSTEM` | ✅ |
 | 心跳与超时踢除（15 s / 45 s / 5 s 扫描） | ✅ |
@@ -35,6 +35,8 @@ py -3.13 -V            # Python 3.13.7
 
 ```
 Bluebird/
+├─ 启动聊天室.bat    双击即用：起服务端 + 打开登录窗（不需要快捷方式、不需要装依赖）
+├─ 创建桌面快捷方式.bat  双击在仓库根与桌面各生成一个 .lnk（.lnk 不进仓库，见下）
 ├─ start_chat.py    一键启动：没有服务端就先起一个，再打开登录窗（快捷方式指向它）
 ├─ assets/
 │   └─ bluebird.ico     快捷方式图标（tools/make_icon.py 生成）
@@ -67,12 +69,12 @@ Bluebird/
 │   ├─ verify_d2.py     D2 验收：20 项协议层判据（登录／名单／群聊／私聊／限流）
 │   ├─ verify_d2_cli.py D2 验收：三端真实 CLI
 │   ├─ verify_robust.py 健壮性验收：心跳判死、慢客户端、坏帧容错、断线退出
-│   ├─ verify_d3_gui.py D3 验收：开真窗口走查 33 项，可 --shots 出截图、--host 换地址
+│   ├─ verify_d3_gui.py D3 验收：开真窗口走查 34 项，可 --shots 出截图、--host 换地址
 │   ├─ verify_d3_net.py D3 验收：T13 换网复验（走真实网卡，不经过 127.0.0.1）
 │   ├─ make_shortcut.py 生成「Bluebird 聊天室」快捷方式（仓库根 + 桌面）
 │   ├─ make_icon.py     生成快捷方式图标 assets/bluebird.ico
 │   └─ build_d3_doc.py  生成桌面工作汇总 docx
-├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 31 + 客户端 16 + 界面 6 = 92 条
+├─ tests/               协议 23 + 限流 4 + 路由 6 + 心跳 6 + 服务端 32 + 客户端 16 + 界面 6 = 93 条
 └─ docs/
     ├─ protocol.md      应用层协议 v2（唯一事实源）
     ├─ 三阶段实施路线.md
@@ -83,9 +85,23 @@ Bluebird/
 
 ## 快速开始
 
-### 最省事：双击快捷方式
+### 从 GitHub 下载之后怎么用
 
-仓库根目录和桌面上各有一个 **`Bluebird 聊天室`** 快捷方式，双击即可：
+**仓库里没有 `.lnk` 快捷方式，这是故意的**：`.lnk` 存的是绝对路径
+（`D:\Bluebird\.venv\Scripts\pythonw.exe` 之类），传到别人机器上必然指向不存在的位置，
+所以它被 `.gitignore` 排除，只能在本机生成。下载后按需要双击下面两个之一：
+
+| 想做的事 | 双击这个 | 会发生什么 |
+| --- | --- | --- |
+| 直接开聊 | `启动聊天室.bat` | 起服务端（若没有）+ 弹出登录窗，不用先做快捷方式 |
+| 弄一个桌面图标 | `创建桌面快捷方式.bat` | 在仓库根目录和桌面各生成一个「Bluebird 聊天室」 |
+
+两个脚本都只用标准库，**不需要 pip install**；有 `.venv` 就用它，没有就用系统里的
+Python（要求 3.10+，安装时记得勾选 “Add python.exe to PATH”）。
+
+### 有了快捷方式之后
+
+双击「Bluebird 聊天室」：
 
 - 8888 上没有服务端 → 后台起一个（日志 `logs/server.log`），随后弹出登录窗；
 - 已经有服务端 → 只多开一个客户端窗口（演示三端就双击三次）；
@@ -93,7 +109,7 @@ Bluebird/
   不会留下看不见的后台进程。
 
 要连别人机器上的服务端：双击后把登录窗里的地址改成对方 IP 即可；
-也可以建一个只开客户端的快捷方式：
+也可以直接开一个只连服务端的客户端：
 
 ```powershell
 py -3.13 tools\make_shortcut.py          # 重建快捷方式（仓库根 + 桌面）
@@ -101,7 +117,7 @@ py -3.13 start_chat.py --no-server       # 只开客户端（连别人机器）
 py -3.13 start_chat.py --host 192.168.1.10
 ```
 
-> 快捷方式里存的是绝对路径：**把仓库挪了位置就要重新跑一次 `make_shortcut.py`**。
+> 快捷方式里存的是绝对路径：**把仓库挪了位置就要重新跑一次 `创建桌面快捷方式.bat`**。
 
 ### 图形界面（手动起）
 
@@ -154,8 +170,8 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 ## 测试
 
 ```powershell
-.venv\Scripts\python.exe -m pytest                 # 92 passed
-.venv\Scripts\python.exe tools\verify_d3_gui.py    # D3 界面走查 33 项（自己起服务端，约 20 秒）
+.venv\Scripts\python.exe -m pytest                 # 93 passed
+.venv\Scripts\python.exe tools\verify_d3_gui.py    # D3 界面走查 34 项（自己起服务端，约 20 秒）
 .venv\Scripts\python.exe tools\verify_d3_gui.py --shots   # 顺便把截图写到 docs/gui/
 .venv\Scripts\python.exe tools\verify_d3_gui.py --host 172.20.10.5   # 换网复验：走真实网卡
 .venv\Scripts\python.exe tools\verify_d3_net.py    # T13 换网复验 11 项（自动取本机局域网 IP）
@@ -185,7 +201,7 @@ py -3.13 -m client.cli --name bob --color blue     # 终端 3（可换机器，-
 - [docs/test/D2-robust-evidence.txt](docs/test/D2-robust-evidence.txt) —— 健壮性判据的实际输出
 - [docs/test/D2-capture.txt](docs/test/D2-capture.txt) —— 私聊隔离的字节级证据（carol 的流里 0 条 0x11）
 - [docs/test/D3.md](docs/test/D3.md) —— D3 界面与健壮性：四区布局、三个决定、四个坑、换网复验
-- [docs/test/D3-gui-evidence.txt](docs/test/D3-gui-evidence.txt) —— 界面走查 33 项的实际输出
+- [docs/test/D3-gui-evidence.txt](docs/test/D3-gui-evidence.txt) —— 界面走查 34 项的实际输出
 - [docs/test/D3-net-evidence.txt](docs/test/D3-net-evidence.txt) —— T13 换网复验 11 项（真实网卡、非回环）
 - [docs/gui/](docs/gui) —— 登录窗 / 主窗 / 私聊窗 / 设置 / 断线 五张截图
 - [docs/三阶段实施路线.md](docs/三阶段实施路线.md) —— 三阶段施工顺序与每步判据

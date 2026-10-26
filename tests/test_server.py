@@ -691,7 +691,28 @@ async def test_server_exits_after_the_last_client_leaves(lonely_server: ChatServ
     assert lonely_server.serving is False
 
 
-async def test_server_waits_for_the_first_client_before_counting(lonely_server: ChatServer) -> None:
-    """还没人来过就永远不退出，否则启动后干等一会儿的服务端会莫名消失。"""
-    await asyncio.sleep(0.7)                  # 比 exit_when_idle 长一倍多
-    assert lonely_server.serving is True
+async def test_server_exits_if_nobody_ever_connects(lonely_server: ChatServer) -> None:
+    """开了窗口却从没登录就关掉，不能留下一个永远不退的服务端（复验报告 P2）。"""
+    for _ in range(60):
+        if not lonely_server.serving:
+            break
+        await asyncio.sleep(0.05)
+    assert lonely_server.serving is False
+
+
+async def test_connection_alone_holds_off_the_idle_exit(lonely_server: ChatServer) -> None:
+    """只要连上了（哪怕还没登录）就不算「没人」——用户慢慢输昵称不该被踢。"""
+    reader, writer = await connect(lonely_server)
+    try:
+        assert lonely_server.live_connections == 1
+        await asyncio.sleep(0.7)              # 比 exit_when_idle 长一倍多
+        assert lonely_server.serving is True
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+    for _ in range(60):                       # 断开之后才会开始计时
+        if not lonely_server.serving:
+            break
+        await asyncio.sleep(0.05)
+    assert lonely_server.serving is False

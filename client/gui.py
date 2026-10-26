@@ -281,9 +281,13 @@ class BluebirdApp:
             self.chat.remove_user(payload.get("nickname", ""))
         elif kind == "user_color":
             self.chat.update_color(payload.get("nickname", ""), payload.get("color", "black"))
-            self.chat.append_system(
-                f"{payload.get('nickname')} 的颜色改为 {ui.COLOR_LABEL.get(payload.get('color'), payload.get('color'))}"
-            )
+            # 自己改色时本地已经提示过一句（set_color），服务端这条广播只给别人看；
+            # 都渲染的话界面上会出现「你把颜色改成了绿色」+「alice 的颜色改为 绿色」两条。
+            if payload.get("nickname") != self.nickname:
+                self.chat.append_system(
+                    f"{payload.get('nickname')} 的颜色改为 "
+                    f"{ui.COLOR_LABEL.get(payload.get('color'), payload.get('color'))}"
+                )
         elif kind == "system":
             self.chat.append_system(payload.get("text", ""))
         elif kind == "message":
