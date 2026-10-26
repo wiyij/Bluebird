@@ -34,6 +34,9 @@ LOG_DIR = ROOT / "logs"
 LAUNCH_LOG = LOG_DIR / "launcher.log"
 SERVER_LOG = LOG_DIR / "server.log"
 
+sys.path.insert(0, str(ROOT))
+from client.session import is_local_host, load_last_host  # noqa: E402
+
 #: 最后一个客户端离开后，服务端再等多久自退（秒）
 IDLE_EXIT = 120.0
 
@@ -138,27 +141,53 @@ def run_gui(host: str, port: int, name: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     redirect_streams()
     parser = argparse.ArgumentParser(prog="start_chat", description="Bluebird 聊天室一键启动")
-    parser.add_argument("--host", default="127.0.0.1", help="登录窗里预填的服务器地址")
-    parser.add_argument("--port", type=int, default=8888)
+    parser.add_argument("--host", default=None,
+                        help="登录窗里预填的服务器地址；不给就用上次连过的，再没有就 127.0.0.1")
+    parser.add_argument("--port", type=int, default=None, help="默认 8888（或用上次的端口）")
     parser.add_argument("--name", default="", help="预填昵称")
     parser.add_argument("--no-server", action="store_true",
                         help="只开客户端；连别人机器上的服务端时用")
     args = parser.parse_args(argv)
 
-    log(f"===== 启动 host={args.host} port={args.port} no_server={args.no_server}")
+    host, port, no_server = decide_target(args.host, args.port, args.no_server)
+    log(f"===== 启动 host={host} port={port} no_server={no_server}")
 
-    if not args.no_server and not ensure_server(args.port):
+    if not no_server and not ensure_server(port):
         show_error("Bluebird 聊天室",
-                   f"服务端没能在 {args.port} 端口启动。\n\n"
+                   f"服务端没能在 {port} 端口启动。\n\n"
                    f"可能是端口被别的程序占用，详见：\n{SERVER_LOG}")
         return 2
 
     try:
-        return run_gui(args.host, args.port, args.name)
+        return run_gui(host, port, args.name)
     except Exception:                              # noqa: BLE001
         detail = traceback.format_exc()
         show_error("Bluebird 聊天室", f"界面启动失败：\n{detail}")
         return 1
+
+
+def decide_target(explicit_host: str | None, explicit_port: int | None,
+                  no_server: bool) -> tuple[str, int, bool]:
+    """决定这次连哪里、要不要在本机起服务端。
+
+    规则就三条，按优先级：
+    1. 命令行给了 --host → 听命令行的；
+    2. 没给 → 看上次成功登录过的地址：是本机就照旧起服务端，是别人的 IP 就只当客户端
+       （**这一步是「同一局域网进不了同一个房间」的根因**：以前每台机器都默认起一个
+       本地服务端并连 127.0.0.1，于是两台机器各在各的空房间里）；
+    3. 都没有 → 127.0.0.1 + 起服务端（单机演示）。
+    """
+    if explicit_host:
+        return explicit_host, explicit_port or 8888, no_server
+
+    last = load_last_host()
+    if last is not None and not is_local_host(last[0]):
+        log(f"上次连的是 {last[0]}:{last[1]}（不是本机），这次只开客户端")
+        return last[0], explicit_port or last[1], True
+
+    if last is not None:
+        return "127.0.0.1", explicit_port or last[1], no_server
+    return "127.0.0.1", explicit_port or 8888, no_server
 
 
 if __name__ == "__main__":
