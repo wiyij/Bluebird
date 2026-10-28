@@ -68,44 +68,65 @@ class LoginFrame(tk.Frame):
         self._build()
 
     def _build(self) -> None:
-        pad = {"padx": 28, "fill": "x"}
+        wrap = tk.Frame(self, bg=ui.BG)
+        wrap.pack(fill="both", expand=True, padx=ui.px(34), pady=ui.px(26))
 
-        tk.Label(self, text="Bluebird 局域网聊天室", font=ui.font(ui.SIZE_TITLE, "bold"),
-                 bg=ui.BG, fg=ui.COLOR_HEX["black"], anchor="w").pack(pady=(24, 2), **pad)
-        tk.Label(self, text="输入昵称进入同一个聊天室；颜色可以在设置里改。",
-                 font=ui.font(ui.SIZE_SMALL), fg=ui.MUTED, bg=ui.BG,
-                 anchor="w").pack(**pad)
+        # ---- 品牌 ----
+        brand = tk.Frame(wrap, bg=ui.BG)
+        brand.pack(fill="x")
+        image = ui.logo(self, 44)
+        if image is not None:
+            self._logo = image                      # 必须留引用，不然会被回收
+            tk.Label(brand, image=image, bg=ui.BG).pack(side="left")
+        titles = tk.Frame(brand, bg=ui.BG)
+        titles.pack(side="left", padx=(ui.px(12), 0))
+        tk.Label(titles, text="Bluebird", font=ui.font(ui.SIZE_TITLE, "bold"),
+                 bg=ui.BG, fg=ui.INK, anchor="w").pack(anchor="w")
+        tk.Label(titles, text="局域网聊天室", font=ui.font(ui.SIZE_SUBTLE),
+                 bg=ui.BG, fg=ui.MUTED, anchor="w").pack(anchor="w")
 
-        form = tk.Frame(self, bg=ui.BG)
-        form.pack(fill="x", padx=28, pady=(18, 0))
-        form.grid_columnconfigure(1, weight=1)
+        tk.Label(wrap, text="同一个局域网，同一个房间。", font=ui.font(ui.SIZE_SUBTLE),
+                 bg=ui.BG, fg=ui.MUTED, anchor="w").pack(fill="x", pady=(ui.px(14), ui.px(16)))
 
-        tk.Label(form, text="昵称", bg=ui.BG, font=ui.font()).grid(row=0, column=0, sticky="w")
-        self.name_entry = tk.Entry(form, textvariable=self.name_var, font=ui.font(),
-                                   relief="solid", borderwidth=1)
-        self.name_entry.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
+        # ---- 表单卡片 ----
+        card = tk.Frame(wrap, bg=ui.SURFACE, highlightthickness=1,
+                        highlightbackground=ui.BORDER)
+        card.pack(fill="x")
+        inner = tk.Frame(card, bg=ui.SURFACE)
+        inner.pack(fill="x", padx=ui.px(20), pady=ui.px(18))
 
-        tk.Label(form, text="服务器", bg=ui.BG, font=ui.font()).grid(row=1, column=0, sticky="w")
-        server_row = tk.Frame(form, bg=ui.BG)
-        server_row.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=4)
+        tk.Label(inner, text="昵称", font=ui.font(ui.SIZE_SMALL), fg=ui.MUTED,
+                 bg=ui.SURFACE, anchor="w").pack(fill="x")
+        self._name_box = ui.field(inner, self.name_var)
+        self._name_box.pack(fill="x", pady=(ui.px(6), ui.px(14)))
+        self.name_entry = self._name_box.entry
+
+        tk.Label(inner, text="服务器", font=ui.font(ui.SIZE_SMALL), fg=ui.MUTED,
+                 bg=ui.SURFACE, anchor="w").pack(fill="x")
+        server_row = tk.Frame(inner, bg=ui.SURFACE)
+        server_row.pack(fill="x", pady=(ui.px(6), 0))
         server_row.grid_columnconfigure(0, weight=1)
-        tk.Entry(server_row, textvariable=self.host_var, font=ui.font(),
-                 relief="solid", borderwidth=1).grid(row=0, column=0, sticky="ew")
-        tk.Label(server_row, text=":", bg=ui.BG, font=ui.font()).grid(row=0, column=1, padx=4)
-        tk.Entry(server_row, textvariable=self.port_var, font=ui.font(), width=6,
-                 relief="solid", borderwidth=1).grid(row=0, column=2)
+        self._host_box = ui.field(server_row, self.host_var)
+        self._host_box.grid(row=0, column=0, sticky="ew")
+        tk.Label(server_row, text=":", bg=ui.SURFACE, fg=ui.SUBTLE,
+                 font=ui.font()).grid(row=0, column=1, padx=ui.px(6))
+        self._port_box = ui.field(server_row, self.port_var, width=6, justify="center")
+        self._port_box.grid(row=0, column=2, sticky="e")
 
-        self.error_label = tk.Label(self, text="", fg=ui.DANGER, bg=ui.BG,
-                                    font=ui.font(ui.SIZE_SMALL), wraplength=360,
+        # 错误区先占好位置，出现提示时按钮不会往下跳
+        slot = tk.Frame(inner, bg=ui.SURFACE, height=ui.px(34))
+        slot.pack(fill="x", pady=(ui.px(8), 0))
+        slot.pack_propagate(False)
+        self.error_label = tk.Label(slot, text="", fg=ui.DANGER, bg=ui.SURFACE,
+                                    font=ui.font(ui.SIZE_SMALL), wraplength=ui.px(330),
                                     justify="left", anchor="w")
-        self.error_label.pack(fill="x", padx=28, pady=(12, 0))
+        self.error_label.pack(fill="both", expand=True)
 
-        self.enter_button = tk.Button(self, text="进入聊天室", font=ui.font(ui.SIZE_BODY, "bold"),
-                                      command=self.submit, height=1)
-        self.enter_button.pack(fill="x", padx=28, pady=(6, 20))
+        self.enter_button = ui.primary_button(inner, "进入聊天室", self.submit)
+        self.enter_button.pack(fill="x")
 
         self.name_entry.focus_set()
-        for widget in (self.name_entry,):
+        for widget in (self.name_entry, self._host_box.entry, self._port_box.entry):
             widget.bind("<Return>", lambda _e: self.submit())
 
     # ---------------------------------------------------------------- 提交
@@ -113,15 +134,15 @@ class LoginFrame(tk.Frame):
     def submit(self) -> None:
         name = self.name_var.get().strip()
         if not NICKNAME_RE.match(name):
-            self.set_error("昵称需 1—16 个字符，中英文、数字、下划线；不能有空格")
+            self.set_error("昵称 1—16 个字：中文、字母、数字或下划线")
             return
         try:
             port = int(self.port_var.get().strip())
         except ValueError:
-            self.set_error("端口必须是数字")
+            self.set_error("端口要填 1—65535 的数字")
             return
         if not 1 <= port <= 65535:
-            self.set_error("端口必须在 1—65535 之间")
+            self.set_error("端口要填 1—65535 的数字")
             return
         host = self.host_var.get().strip() or "127.0.0.1"
         self.set_error("")
@@ -133,9 +154,11 @@ class LoginFrame(tk.Frame):
 
     def set_busy(self, busy: bool) -> None:
         self.enter_button.configure(state="disabled" if busy else "normal",
-                                    text="连接中…" if busy else "进入聊天室")
+                                    text="正在进入…" if busy else "进入聊天室")
+        for box in (self._name_box, self._host_box, self._port_box):
+            box.entry.configure(state="disabled" if busy else "normal")
         if busy:
-            self.error_label.configure(text="正在连接…", fg=ui.MUTED)
+            self.error_label.configure(text="正在连接…", fg=ui.SUBTLE)
         else:
             self.error_label.configure(fg=ui.DANGER)
 
@@ -161,10 +184,17 @@ class BluebirdApp:
         self._generation = 0
         self._alive = True
 
-        self.root.title("Bluebird 局域网聊天室")
+        prepare_dpi(self.root)
+        icon = ui.logo(self.root, 32)
+        if icon is not None:
+            self._icon = icon
+            try:
+                self.root.iconphoto(True, icon)
+            except tk.TclError:
+                pass
+        self.root.title("Bluebird · 登录")
         self.root.configure(bg=ui.BG)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        prepare_dpi(self.root)
         self._show_login()
         self.root.after(POLL_MS, self._poll)
 
@@ -185,26 +215,26 @@ class BluebirdApp:
         self._center(*ui.px_pair(ui.WINDOW_LOGIN))
         self.login = LoginFrame(self.root, self)
         self.login.pack(fill="both", expand=True)
-        self.root.title("Bluebird 局域网聊天室 · 登录")
+        self.root.title("Bluebird · 登录")
 
     def _show_chat(self, server_text: str) -> None:
         if self.login is not None:
             self.login.destroy()
             self.login = None
         self.root.resizable(True, True)
-        self.root.minsize(ui.px(720), ui.px(480))
+        self.root.minsize(ui.px(760), ui.px(520))
         self._center(*ui.px_pair(ui.WINDOW_CHAT))
         self.chat = ChatFrame(self.root, self, server_text)
         self.chat.pack(fill="both", expand=True)
-        self.chat.append_system(f"你已以 {self.nickname} 的身份进入聊天室")
-        self.root.title(f"Bluebird 局域网聊天室 · {self.nickname}")
+        self.chat.append_system(f"欢迎，{self.nickname}")
+        self.root.title(f"Bluebird · {self.nickname}")
 
     def back_to_login(self) -> None:
         """断线后回登录窗：v2 不续会话，重新走一遍登录（决定⑥）。"""
         self._stop_net()
         self._show_login()
         if self.login is not None:
-            self.login.set_error("连接已断开，请重新登录")
+            self.login.set_error("刚才的连接断开了")
 
     def on_close(self) -> None:
         self._alive = False
@@ -250,7 +280,7 @@ class BluebirdApp:
             except Exception:                # 一个坏事件不能把事件泵弄死
                 traceback.print_exc()
                 if self.chat is not None:
-                    self.chat.append_error("[界面异常] 处理服务端消息时出错，详见控制台")
+                    self.chat.append_error("消息显示出了点问题，详见控制台")
         self.root.after(POLL_MS, self._poll)
 
     def _handle(self, kind: str, payload: dict) -> None:
@@ -280,14 +310,8 @@ class BluebirdApp:
         elif kind == "user_leave":
             self.chat.remove_user(payload.get("nickname", ""))
         elif kind == "user_color":
+            # 颜色只是每个人自己的显示偏好：静默更新名单，不在消息区刷提示
             self.chat.update_color(payload.get("nickname", ""), payload.get("color", "black"))
-            # 自己改色时本地已经提示过一句（set_color），服务端这条广播只给别人看；
-            # 都渲染的话界面上会出现「你把颜色改成了绿色」+「alice 的颜色改为 绿色」两条。
-            if payload.get("nickname") != self.nickname:
-                self.chat.append_system(
-                    f"{payload.get('nickname')} 的颜色改为 "
-                    f"{ui.COLOR_LABEL.get(payload.get('color'), payload.get('color'))}"
-                )
         elif kind == "system":
             self.chat.append_system(payload.get("text", ""))
         elif kind == "message":
@@ -303,14 +327,14 @@ class BluebirdApp:
 
     def _handle_error(self, payload: dict) -> None:
         code = payload.get("code")
-        text = payload.get("message") or "操作失败"
+        text = payload.get("message") or "出了点问题"
         if code == 3001:
             # 私聊对象离线：提示落在私聊窗里更符合直觉
             for window in (self.chat.private_windows.values() if self.chat else []):
                 if window.winfo_exists():
-                    window.append_error(f"[错误 3001] {text}")
+                    window.append_error(text)
                     return
-        self.chat.append_error(f"[错误 {code}] {text}")
+        self.chat.append_error(text)
 
     # ---------------------------------------------------------------- 对外
 
@@ -326,8 +350,6 @@ class BluebirdApp:
         self.color = color
         if self.net is not None:
             self.net.set_color(color)
-        if self.chat is not None:
-            self.chat.append_system(f"你把颜色改成了{ui.COLOR_LABEL.get(color, color)}")
 
     def is_online(self, nickname: str) -> bool:
         return self.chat is not None and self.chat.is_online(nickname)

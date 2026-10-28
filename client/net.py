@@ -53,12 +53,12 @@ LOGIN_TIMEOUT = 5.0
 #: 断线原因 → 中文说法（A24：别把 Python 异常名甩到用户脸上）。
 #: 命令行与 GUI 共用这一份，免得同一个原因在两个界面上是两种说法。
 REASON_TEXT: dict[str, str] = {
-    "server_closed": "服务端关闭了连接",
+    "server_closed": "服务器把连接关掉了",
     "network": "网络中断",
-    "timeout": "长时间收不到服务端数据，判定断线",
-    "protocol": "协议错误",
-    "send_failed": "发送失败，连接已不可用",
-    "crash": "客户端内部错误",
+    "timeout": "太久没有收到服务器的消息",
+    "protocol": "协议对不上",
+    "send_failed": "消息没能发出去",
+    "crash": "客户端出了点小问题",
 }
 
 
@@ -187,14 +187,14 @@ class NetClient:
                     timeout=self.connect_timeout,
                 )
             except asyncio.TimeoutError:
-                self._emit("login_fail", {"code": -1, "message": "连接超时，服务端没有响应"})
+                self._emit("login_fail", {"code": -1, "message": "连接超时了，没有等到回应"})
                 return
             except ConnectionRefusedError:
                 self._emit("login_fail", {"code": -1,
-                                          "message": "连接被拒绝：该地址没有程序在监听"})
+                                          "message": "这个地址上没有聊天室在运行"})
                 return
-            except OSError as exc:
-                self._emit("login_fail", {"code": -1, "message": f"连接失败：{exc}"})
+            except OSError:
+                self._emit("login_fail", {"code": -1, "message": "这个地址连不上"})
                 return
 
             self.reader = reader
@@ -238,21 +238,20 @@ class NetClient:
                 read_frame(self.reader, self.max_body), self.login_timeout
             )
         except asyncio.TimeoutError:
-            self._emit("login_fail", {"code": -1, "message": "登录超时：服务端没有回应"})
+            self._emit("login_fail", {"code": -1, "message": "登录没有回应，稍后再试"})
             return False
         except asyncio.IncompleteReadError:
-            self._emit("login_fail", {"code": -1, "message": "登录失败：服务端关闭了连接"})
+            self._emit("login_fail", {"code": -1, "message": "服务器把连接关掉了"})
             return False
-        except (ConnectionError, OSError) as exc:
-            self._emit("login_fail", {"code": -1,
-                                      "message": f"登录失败：网络中断（{exc.__class__.__name__}）"})
+        except (ConnectionError, OSError):
+            self._emit("login_fail", {"code": -1, "message": "登录时网络断了"})
             return False
         except ProtocolError as exc:
             self._emit("login_fail", {"code": -1, "message": f"登录失败：{exc.detail or exc.reason}"})
             return False
 
         if msg_type != MsgType.LOGIN_RESP:
-            self._emit("login_fail", {"code": -1, "message": "登录失败：服务端回了意料之外的帧"})
+            self._emit("login_fail", {"code": -1, "message": "服务器回了一个看不懂的包"})
             return False
 
         code = int(body.get("code", -1))

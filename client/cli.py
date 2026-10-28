@@ -166,9 +166,9 @@ class ChatCli:
         ts = _stamp()
         if kind == "message":
             if payload["kind"] == "group":
-                print(f"{ts}  [{payload['from']}：{payload['text']}]")
+                print(f"{ts}  [{payload['from']}]：{payload['text']}")
             else:
-                print(f"{ts}  [私聊 {payload['from']}→{payload['to']}：{payload['text']}]")
+                print(f"{ts}  [私聊 {payload['from']}→{payload['to']}]：{payload['text']}")
         elif kind == "system":
             print(f"{ts}  [system：{payload['text']}]")
         elif kind == "user_list":
@@ -183,7 +183,6 @@ class ChatCli:
             nickname = payload.get("nickname")
             if nickname in self.online:
                 self.online[nickname]["color"] = payload.get("color")
-            print(f"{ts}  [system：{nickname} 的颜色改为 {payload.get('color')}]")
         elif kind == "error":
             code = payload.get("code")
             print(f"{ts}  [错误 {code}] {payload.get('message') or message_for(code)}")

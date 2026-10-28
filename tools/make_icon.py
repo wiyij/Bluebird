@@ -1,9 +1,9 @@
-"""生成 assets/bluebird.ico（快捷方式图标）。
+"""生成 assets/bluebird.ico（快捷方式图标）与 assets/bluebird.png（界面里的 Logo）。
 
     py tools/make_icon.py
 
-纯 Pillow 画一个蓝底白气泡，尺寸 256/128/64/48/32/16 打包进一个 .ico。
-图标随仓库走，换机器重建快捷方式时不用再找图。
+纯 Pillow 画一个蓝底白气泡，尺寸 256/128/64/48/32/16 打包进一个 .ico；
+同一张 256 的图另存成 .png，登录窗与顶栏直接加载它，不依赖系统图标资源。
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / "assets" / "bluebird.ico"
+PNG = ROOT / "assets" / "bluebird.png"
 BLUE = "#0b57d0"
 DEEP = "#0842a0"
 
@@ -44,7 +45,9 @@ def main() -> int:
     image = draw(256)
     image.save(TARGET, format="ICO",
                sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+    image.save(PNG, format="PNG")
     print(f"saved -> {TARGET} ({TARGET.stat().st_size} bytes)")
+    print(f"saved -> {PNG} ({PNG.stat().st_size} bytes)")
     return 0
 
 

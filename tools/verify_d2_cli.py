@@ -71,12 +71,12 @@ checks = [
      all("已进入聊天室：" + name in outputs[name] for name in ("alice", "bob", "carol"))),
     ("carol 的名单里有 3 人", "在线 3 人" in outputs["carol"]),
     ("alice 的群聊三端都收到",
-     all("[alice：三端都在吗]" in outputs[n] for n in ("alice", "bob", "carol"))),
+     all("[alice]：三端都在吗" in outputs[n] for n in ("alice", "bob", "carol"))),
     ("顺序一致：bob 那条在 alice 那条之后",
-     outputs["bob"].find("[bob：在]") > outputs["bob"].find("[alice：三端都在吗]")),
+     outputs["bob"].find("[bob]：在") > outputs["bob"].find("[alice]：三端都在吗")),
     ("私聊只到 bob（alice 回显 + bob 收到）",
-     "[私聊 alice→bob：这条只给 bob]" in outputs["bob"]
-     and "[私聊 alice→bob：这条只给 bob]" in outputs["alice"]),
+     "[私聊 alice→bob]：这条只给 bob" in outputs["bob"]
+     and "[私聊 alice→bob]：这条只给 bob" in outputs["alice"]),
     ("carol 完全看不到私聊", "这条只给 bob" not in outputs["carol"]),
     ("alice 收到 carol 退出的系统提示", "carol 退出了" in outputs["alice"]),
     ("bob 收到 carol 退出的系统提示", "carol 退出了" in outputs["bob"]),

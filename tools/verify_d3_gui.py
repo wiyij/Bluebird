@@ -20,7 +20,6 @@ import queue
 import subprocess
 import sys
 import time
-from ctypes import wintypes
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,42 +52,78 @@ def check(tag: str, ok: bool, detail: str = "") -> None:
 # ---------------------------------------------------------------- 截图
 
 
-def capture(widget: tk.Misc, name: str) -> None:
-    """截这个窗口（含标题栏），用 System.Drawing + Win32 的窗口矩形，不引第三方库。
+#: 截图用的 Win32 包装：临时置顶 + 取 DWM 可见边框 + 屏幕拷贝。
+#: SetProcessDpiAwareness 必须最先调用，否则 150% 屏上拿到的是被虚拟化过的尺寸。
+SHOT_CS = """
+using System;
+using System.Runtime.InteropServices;
+public class BluebirdShot {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L; public int T; public int R; public int B; }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("shcore.dll")] public static extern int SetProcessDpiAwareness(int v);
+}
+"""
 
-    用 ``GetWindowRect`` 而不是 Tk 的 ``winfo_rootx``：声明 DPI 感知之前，Tk 给的是
-    逻辑像素、``CopyFromScreen`` 收的是物理像素，两者差 1.5 倍，截出来永远是歪的。
+
+def capture(widget: tk.Misc, name: str) -> None:
+    """截这个窗口的客户端区域（不含系统标题栏）。
+
+    桌面上可能压着浏览器、聊天工具甚至游戏，所以截图前把窗口临时置顶、提到最前。
+    只取客户区还有一个好处：Windows 10 窗口四周有一圈**透明**的拖拽边框，
+    连着边框截会把后面的桌面透进来，按客户区裁掉就干净了。
     """
     if not SHOTS:
         return
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
     widget.update_idletasks()
+    widget.update()
     hwnd = widget.winfo_id()
-    frame = ctypes.windll.user32.GetParent(hwnd) or hwnd
-    rect = wintypes.RECT()
-    # 优先用 DWM 的「可见边框」：GetWindowRect 把 Win10 的透明边距和阴影也算进来，
-    # 截图边上就会带一圈桌面。
-    try:
-        got = ctypes.windll.dwmapi.DwmGetWindowAttribute(
-            frame, 9, ctypes.byref(rect), ctypes.sizeof(rect)   # DWMWA_EXTENDED_FRAME_BOUNDS
-        )
-    except (AttributeError, OSError):
-        got = -1
-    if got != 0:
-        ctypes.windll.user32.GetWindowRect(frame, ctypes.byref(rect))
-    x, y = rect.left, rect.top
-    w, h = rect.right - rect.left, rect.bottom - rect.top
+    # GA_ROOT：Tk 的 winfo_id 是客户区窗口，真正的顶层框架要往上找
+    frame = ctypes.windll.user32.GetAncestor(hwnd, 2) or hwnd
     target = (SHOT_DIR / name).as_posix()
     script = (
         "Add-Type -AssemblyName System.Drawing;"
-        f"$b=New-Object System.Drawing.Bitmap {w},{h};"
-        f"$g=[System.Drawing.Graphics]::FromImage($b);"
-        f"$g.CopyFromScreen({x},{y},0,0,$b.Size);"
-        f"$b.Save('{target}');"
-        "$g.Dispose();$b.Dispose()"
+        "Add-Type -TypeDefinition @'\n" + SHOT_CS + "\n'@;"
+        "[BluebirdShot]::SetProcessDpiAwareness(1) | Out-Null;"
+        f"$h=[IntPtr]{frame};"
+        "[BluebirdShot]::SetWindowPos($h,[IntPtr](-1),0,0,0,0,0x0043) | Out-Null;"   # topmost
+        "[BluebirdShot]::ShowWindow($h,9) | Out-Null;"
+        "[BluebirdShot]::BringWindowToTop($h) | Out-Null;"
+        "[BluebirdShot]::SetForegroundWindow($h) | Out-Null;"
+        "Start-Sleep -Milliseconds 450;"
+        "$cr=New-Object BluebirdShot+RECT;"
+        "$pt=New-Object BluebirdShot+POINT;"
+        "[BluebirdShot]::GetClientRect($h,[ref]$cr) | Out-Null;"
+        "[BluebirdShot]::ClientToScreen($h,[ref]$pt) | Out-Null;"
+        "$x=$pt.X; $y=$pt.Y; $w=$cr.R; $hh=$cr.B;"
+        "$bmp=New-Object System.Drawing.Bitmap $w,$hh;"
+        "$g=[System.Drawing.Graphics]::FromImage($bmp);"
+        "$g.CopyFromScreen($x,$y,0,0,$bmp.Size);"
+        "$g.Dispose();"
+        f"$bmp.Save('{target}',[System.Drawing.Imaging.ImageFormat]::Png);"
+        "$bmp.Dispose();"
+        "[BluebirdShot]::SetWindowPos($h,[IntPtr](-2),0,0,0,0,0x0043) | Out-Null"    # 取消置顶
     )
-    subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                   capture_output=True, check=False)
+    # 截图期间仍然泵事件：置顶/激活会发 WM_ACTIVATE 之类的同步消息，
+    # 主线程如果只睡不处理，PowerShell 那边就会等在那里。
+    proc = subprocess.Popen(["powershell", "-NoProfile", "-Command", script],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 15
+    while proc.poll() is None and time.monotonic() < deadline:
+        try:
+            widget.update()
+        except tk.TclError:
+            break
+        time.sleep(0.02)
+    if proc.poll() is None:
+        proc.kill()
     log(f"   截图 → {Path(target).relative_to(ROOT)}")
 
 
@@ -234,16 +269,16 @@ def main() -> int:
           got is not None and got.get("text") == "你好 😀 世界",
           f"{(got or {}).get('text', '没收到')}（{delay:.2f} s）")
     check("发出后输入框清空", app.chat.current_text() == "", repr(app.chat.current_text()))
-    pump(root, 5, until=lambda: "[alice：你好 😀 世界]" in app.chat.message_text())
+    pump(root, 5, until=lambda: "[alice]：你好 😀 世界" in app.chat.message_text())
     body = app.chat.message_text()
-    check("自己的消息也回显，格式为 [昵称：内容]（全角冒号）",
-          "[alice：你好 😀 世界]" in body,
+    check("自己的消息也回显，格式为 [昵称]：内容（全角冒号）",
+          "[alice]：你好 😀 世界" in body,
           "消息区尾部：" + repr(body[-120:]) + " 事件流：" +
           repr([(k, n) for k, _, n in seen[-8:]]))
 
     bob.net.send_group("收到，这是 bob 的回复")
-    pump(root, 2, until=lambda: "bob：收到，这是 bob 的回复" in app.chat.message_text())
-    check("对方的消息出现在消息区", "bob：收到，这是 bob 的回复" in app.chat.message_text())
+    pump(root, 2, until=lambda: "[bob]：收到，这是 bob 的回复" in app.chat.message_text())
+    check("对方的消息出现在消息区", "[bob]：收到，这是 bob 的回复" in app.chat.message_text())
     check("消息按发送者着色（bob 用黑色 tag）",
           "c_black" in app.chat.messages.tag_names()
           and app.chat.messages.tag_cget("c_black", "foreground") == ui.COLOR_HEX["black"])
@@ -282,10 +317,10 @@ def main() -> int:
           str(color_event))
     pump(root, 1, until=lambda: app.chat.color_of("alice") == "green")
     check("T09 本地列表跟着变色", app.chat.color_of("alice") == "green")
-    pump(root, 1.5, until=lambda: "颜色" in app.chat.message_text())
+    pump(root, 1.0)
     color_lines = [line for line in app.chat.message_text().splitlines() if "颜色" in line]
-    check("T09 改一次颜色只出现一条提示（本地提示 + 服务端广播去重）",
-          len(color_lines) == 1, f"{color_lines}")
+    check("T09 改色不往消息区刷提示（设置里选好即可）",
+          not color_lines, f"{color_lines}")
     app.chat.settings.destroy()
 
     bob.net.set_color("blue")

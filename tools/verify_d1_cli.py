@@ -66,10 +66,10 @@ for name, proc in (("alice", alice), ("bob", bob)):
 checks = [
     ("alice 登录成功", "已进入聊天室：alice" in outputs["alice"]),
     ("bob 登录成功", "已进入聊天室：bob" in outputs["bob"]),
-    ("bob 终端打印了 alice 的文字", "[alice：大家好，我是 alice]" in outputs["bob"]),
-    ("alice 终端打印了 bob 的文字", "[bob：收到 😀]" in outputs["alice"]),
+    ("bob 终端打印了 alice 的文字", "[alice]：大家好，我是 alice" in outputs["bob"]),
+    ("alice 终端打印了 bob 的文字", "[bob]：收到 😀" in outputs["alice"]),
     ("alice 看到在线 2 人", "在线 2 人" in outputs["alice"]),
-    ("bob 收到私聊", "[私聊 alice→bob：悄悄话只给你]" in outputs["bob"]),
+    ("bob 收到私聊", "[私聊 alice→bob]：悄悄话只给你" in outputs["bob"]),
     ("quit 退出无异常栈", "Traceback" not in outputs["alice"] + outputs["bob"]),
 ]
 
